@@ -5,8 +5,14 @@ import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
 import { DAYS } from './trip';
 import { getCategory } from './categories';
+import DayMap from './DayMap';
 
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
+const num = (doc, key) => {
+  const f = doc.fields && doc.fields[key];
+  if (!f) return 0;
+  return Number(f.doubleValue !== undefined ? f.doubleValue : f.integerValue || 0);
+};
 const TRANSPORT_EMOJI = { flight: '✈️', car: '🚗', train: '🚆', ferry: '⛴️' };
 
 export default function ItineraryScreen({ authToken, profile }) {
@@ -62,6 +68,8 @@ export default function ItineraryScreen({ authToken, profile }) {
           date: str(doc, 'date'),
           time: str(doc, 'time'),
           status: str(doc, 'status') || 'planned',
+                    lat: Number(doc.fields?.lat?.doubleValue ?? doc.fields?.lat?.integerValue ?? 0),
+          lng: Number(doc.fields?.lng?.doubleValue ?? doc.fields?.lng?.integerValue ?? 0),
           joining: (doc.fields?.joining?.arrayValue?.values || []).map(v => v.stringValue),
           addedByName: str(doc, 'addedByName'),
         }))
@@ -142,7 +150,7 @@ export default function ItineraryScreen({ authToken, profile }) {
   const dayPlans = plans
     .filter(p => p.date === day.iso)
     .sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
-
+  const mapStops = dayPlans.filter(p => p.lat && p.lng);
   const nothing =
     !departing.length && !arriving.length && !stayingTonight.length &&
     !checkingOut.length && !dayPlans.length;
@@ -170,7 +178,7 @@ export default function ItineraryScreen({ authToken, profile }) {
         <Text style={styles.dayHeading}>
           Day {day.dayNumber} · {day.weekday} {day.short}
         </Text>
-
+        <DayMap stops={mapStops} />
         {arriving.length > 0 && <Text style={styles.section}>Arriving</Text>}
         {arriving.map(t => (
           <View key={t.id + 'a'} style={styles.card}>
