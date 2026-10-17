@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { colors } from './theme';
 import Avatar from './Avatar';
+import { CATEGORIES, getCategory } from './categories';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 
 let MapView, Marker;
@@ -30,7 +31,23 @@ const DEFAULT_REGION = {
   latitudeDelta: 3.5,
   longitudeDelta: 3.5,
 };
-
+function CategoryPicker({ value, onChange }) {
+  return (
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
+      {CATEGORIES.map(c => (
+        <TouchableOpacity
+          key={c.id}
+          onPress={() => onChange(c.id)}
+          style={[styles.catChip, value === c.id && styles.catChipOn]}
+        >
+          <Text style={styles.catText}>
+            {c.emoji} {c.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
 export default function SpotsScreen({ authToken, profile }) {
   const [region, setRegion] = useState(DEFAULT_REGION);
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,7 +61,8 @@ export default function SpotsScreen({ authToken, profile }) {
   const [editingSpot, setEditingSpot] = useState(null);
   const [editName, setEditName] = useState('');
   const [editNote, setEditNote] = useState('');
-
+  const [placeCategory, setPlaceCategory] = useState('spot');
+  const [editCategory, setEditCategory] = useState('spot');
   const loadSpots = useCallback(async () => {
     try {
       const response = await firestoreFetch(DB_URL, authToken);
@@ -67,6 +85,7 @@ export default function SpotsScreen({ authToken, profile }) {
             : null,
                       createdByName: doc.fields.createdByName?.stringValue || '',
           createdByCharacter: doc.fields.createdByCharacter?.stringValue || '',
+                 category: doc.fields.category?.stringValue || 'spot',
         }));
 
         setPlacesList(loadedSpots);
@@ -122,6 +141,7 @@ export default function SpotsScreen({ authToken, profile }) {
   };
 
   const handleStartEdit = spot => {
+    setEditCategory(spot.category || 'spot');
     setEditingSpot(spot);
     setEditName(spot.name);
     setEditNote(spot.note);
@@ -133,13 +153,14 @@ export default function SpotsScreen({ authToken, profile }) {
 
     try {
       await firestoreFetch(
-        `https://firestore.googleapis.com/v1/${editingSpot.id}?updateMask.fieldPaths=name&updateMask.fieldPaths=note`,
+        `https://firestore.googleapis.com/v1/${editingSpot.id}?updateMask.fieldPaths=name&updateMask.fieldPaths=note&updateMask.fieldPaths=category`,
         authToken,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             fields: {
+            category: { stringValue: editCategory },
               name: { stringValue: editName.trim() },
               note: { stringValue: editNote },
             },
@@ -229,12 +250,14 @@ export default function SpotsScreen({ authToken, profile }) {
             lng: { doubleValue: selectedPlace.lng },
                         createdByName: { stringValue: profile.name },
             createdByCharacter: { stringValue: profile.character },
+                        category: { stringValue: placeCategory },
           },
         }),
       });
 
       setSelectedPlace(null);
       setPlaceNote('');
+            setPlaceCategory('spot');
       await loadSpots();
     } catch (error) {
       console.error('Error saving spot:', error);
@@ -332,6 +355,7 @@ export default function SpotsScreen({ authToken, profile }) {
         {selectedPlace && (
           <View style={styles.saveCard}>
             <Text style={styles.selectedTitle}>📍 Add: {selectedPlace.name}</Text>
+              <CategoryPicker value={placeCategory} onChange={setPlaceCategory} />
             <TextInput
               style={[styles.input, styles.noteInput]}
               placeholder="Notes (e.g. Camera settings, gear...)"
@@ -362,6 +386,7 @@ export default function SpotsScreen({ authToken, profile }) {
             <Text style={[styles.selectedTitle, { color: colors.highlight }]}>
               ✏️ Edit Spot
             </Text>
+              <CategoryPicker value={editCategory} onChange={setEditCategory} />
             <TextInput
               style={styles.input}
               placeholder="Location name"
@@ -409,7 +434,9 @@ export default function SpotsScreen({ authToken, profile }) {
               onPress={() => handleFocusSpot(place)}
             >
                            <View style={styles.cardHeader}>
-                <Text style={[styles.placeText, { flex: 1 }]}>📍 {place.name}</Text>
+              <Text style={[styles.placeText, { flex: 1 }]}>
+  {getCategory(place.category).emoji} {place.name}
+</Text>
                 {place.createdByCharacter ? (
                   <Avatar characterId={place.createdByCharacter} size={30} />
                 ) : null}
@@ -490,4 +517,7 @@ const styles = StyleSheet.create({
   formButtons: { flexDirection: 'row', marginTop: 5 },
   input: { backgroundColor: colors.input, color: colors.text, padding: 10, borderRadius: 8, fontSize: 14, marginBottom: 8 },
   noteInput: { height: 45, textAlignVertical: 'top' },
+    catChip: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 6, marginBottom: 6, borderWidth: 1, borderColor: colors.input },
+  catChipOn: { borderColor: colors.primary, backgroundColor: '#1f3a5f' },
+  catText: { color: colors.text, fontSize: 13 },
 });
