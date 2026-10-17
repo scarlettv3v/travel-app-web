@@ -15,7 +15,6 @@ import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 export default function ExpensesScreen({ authToken, profile }) {
   const [members, setMembers] = useState([]);
   const [expenses, setExpenses] = useState([]);
-  const [newMember, setNewMember] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [what, setWhat] = useState('');
   const [amount, setAmount] = useState('');
@@ -24,19 +23,21 @@ export default function ExpensesScreen({ authToken, profile }) {
 
   const loadAll = useCallback(async () => {
     try {
-      const membersResponse = await firestoreFetch(
-        `${FIRESTORE_BASE}/members?pageSize=300`,
+        const membersResponse = await firestoreFetch(
+        `${FIRESTORE_BASE}/profiles?pageSize=300`,
         authToken
       );
       const membersData = await membersResponse.json();
 
       setMembers(
-        (membersData.documents || []).map(doc => ({
-          id: doc.name,
-          name: doc.fields.name?.stringValue || '',
-        }))
+        (membersData.documents || [])
+          .map(doc => ({
+            id: doc.name,
+            name: doc.fields?.name?.stringValue || '',
+            character: doc.fields?.character?.stringValue || 'fox',
+          }))
+          .filter(member => member.name)
       );
-
       const expensesResponse = await firestoreFetch(
         `${FIRESTORE_BASE}/expenses?pageSize=300`,
         authToken
@@ -73,39 +74,7 @@ export default function ExpensesScreen({ authToken, profile }) {
 
     return () => clearInterval(timer);
   }, [authToken, loadAll]);
-
-  const addMember = async () => {
-    const name = newMember.trim();
-
-    if (
-      !name ||
-      members.some(
-        member => member.name.toLowerCase() === name.toLowerCase()
-      )
-    ) {
-      return;
-    }
-
-    try {
-      await firestoreFetch(`${FIRESTORE_BASE}/members`, authToken, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fields: {
-            name: { stringValue: name },
-          },
-        }),
-      });
-
-      setNewMember('');
-      await loadAll();
-    } catch (error) {
-      console.error('Error adding member:', error);
-      alert('Could not add member.');
-    }
-  };
-
-  const deleteMember = async id => {
+const deleteExpense = async id => {
     try {
       await firestoreFetch(
         `https://firestore.googleapis.com/v1/${id}`,
@@ -114,15 +83,15 @@ export default function ExpensesScreen({ authToken, profile }) {
       );
       await loadAll();
     } catch (error) {
-      console.error('Error deleting member:', error);
-      alert('Could not delete member.');
+      console.error('Error deleting expense:', error);
+      alert('Could not delete expense.');
     }
   };
 
   const openForm = () => {
     setWhat('');
     setAmount('');
-    setPayer('');
+    setPayer(profile.name);
     setSplit(members.map(member => member.name));
     setShowForm(true);
   };
@@ -182,19 +151,6 @@ export default function ExpensesScreen({ authToken, profile }) {
     }
   };
 
-  const deleteExpense = async id => {
-    try {
-      await firestoreFetch(
-        `https://firestore.googleapis.com/v1/${id}`,
-        authToken,
-        { method: 'DELETE' }
-      );
-      await loadAll();
-    } catch (error) {
-      console.error('Error deleting expense:', error);
-      alert('Could not delete expense.');
-    }
-  };
 
   // Calculate the simplest transfers to settle shared expenses.
   const calculateTransfers = () => {
@@ -266,35 +222,22 @@ export default function ExpensesScreen({ authToken, profile }) {
     >
       <Text style={expenseStyles.title}>💰 Trip Expenses</Text>
 
-      <Text style={expenseStyles.section}>Who's on the trip</Text>
+     <Text style={expenseStyles.section}>Who's on the trip</Text>
 
       <View style={expenseStyles.chipRow}>
         {members.map(member => (
           <View key={member.id} style={expenseStyles.chip}>
-            <Text style={expenseStyles.chipText}>{member.name}</Text>
-            <TouchableOpacity onPress={() => deleteMember(member.id)}>
-              <Text style={expenseStyles.deleteMark}>  ✕</Text>
-            </TouchableOpacity>
+            <Avatar characterId={member.character} size={22} />
+            <Text style={[expenseStyles.chipText, { marginLeft: 6 }]}>
+              {member.name}
+            </Text>
           </View>
         ))}
       </View>
 
-      <View style={expenseStyles.row}>
-        <TextInput
-          style={[expenseStyles.input, { flex: 1, marginRight: 8 }]}
-          placeholder="Add a person's name"
-          placeholderTextColor="#888"
-          value={newMember}
-          onChangeText={setNewMember}
-          onSubmitEditing={addMember}
-        />
-        <TouchableOpacity
-          style={expenseStyles.blueButton}
-          onPress={addMember}
-        >
-          <Text style={expenseStyles.buttonText}>Add</Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={expenseStyles.hint}>
+        Friends appear here automatically once they log in and pick a character.
+      </Text>
 
       <Text style={expenseStyles.section}>Who owes who</Text>
 
