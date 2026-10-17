@@ -15,6 +15,7 @@ import {
 import { colors } from './theme';
 import Avatar from './Avatar';
 import AddToDayCard from './AddToDayCard';
+import { openInGoogleMaps } from './maps';
 import { CATEGORIES, getCategory } from './categories';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 
@@ -107,27 +108,7 @@ export default function SpotsScreen({ authToken, profile }) {
     return () => clearInterval(timer);
   }, [authToken, loadSpots]);
 
-  const handleGetDirections = async (lat, lng) => {
-    if (!lat || !lng) return;
-
-    const gmapsAppUrl = `comgooglemaps://?daddr=${lat},${lng}&directionsmode=driving`;
-    const gmapsWebUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-
-    try {
-      if (Platform.OS === 'ios') {
-        const isAppInstalled = await Linking.canOpenURL(gmapsAppUrl);
-        if (isAppInstalled) {
-          await Linking.openURL(gmapsAppUrl);
-        } else {
-          await Linking.openURL(gmapsWebUrl);
-        }
-      } else {
-        await Linking.openURL(gmapsWebUrl);
-      }
-    } catch (error) {
-      Linking.openURL(gmapsWebUrl);
-    }
-  };
+     const handleGetDirections = (lat, lng, name) => openInGoogleMaps(lat, lng, name);
 
   const handleDeleteSpot = async docPath => {
     try {
@@ -488,7 +469,7 @@ export default function SpotsScreen({ authToken, profile }) {
               <View style={styles.cardActions}>
                 <TouchableOpacity
                   style={styles.actionBtnNav}
-                  onPress={() => handleGetDirections(place.lat, place.lng)}
+                    onPress={() => handleGetDirections(place.lat, place.lng, place.name)}
                 >
                   <Text style={styles.actionBtnText}>🧭 Google Maps</Text>
                 </TouchableOpacity>

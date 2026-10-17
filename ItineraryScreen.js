@@ -6,6 +6,8 @@ import Avatar from './Avatar';
 import { DAYS } from './trip';
 import { getCategory } from './categories';
 import DayMap from './DayMap';
+import { openInGoogleMaps } from './maps';
+import ReorderModal from './ReorderModal';
 
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
 const num = (doc, key) => {
@@ -21,7 +23,7 @@ export default function ItineraryScreen({ authToken, profile }) {
   const [stays, setStays] = useState([]);
   const [plans, setPlans] = useState([]);
   const [characters, setCharacters] = useState({});
-
+  const [reordering, setReordering] = useState(false);
   const loadAll = useCallback(async () => {
     try {
       const tRes = await firestoreFetch(`${FIRESTORE_BASE}/transport?pageSize=300`, authToken);
@@ -70,6 +72,10 @@ export default function ItineraryScreen({ authToken, profile }) {
           status: str(doc, 'status') || 'planned',
                     lat: Number(doc.fields?.lat?.doubleValue ?? doc.fields?.lat?.integerValue ?? 0),
           lng: Number(doc.fields?.lng?.doubleValue ?? doc.fields?.lng?.integerValue ?? 0),
+                    order:
+            doc.fields?.order?.integerValue !== undefined
+              ? Number(doc.fields.order.integerValue)
+              : null,
           joining: (doc.fields?.joining?.arrayValue?.values || []).map(v => v.stringValue),
           addedByName: str(doc, 'addedByName'),
         }))
@@ -147,10 +153,68 @@ export default function ItineraryScreen({ authToken, profile }) {
   const arriving = transport.filter(t => t.arriveDate === day.iso && t.departDate !== day.iso);
   const stayingTonight = stays.filter(s => s.checkIn <= day.iso && day.iso < s.checkOut);
   const checkingOut = stays.filter(s => s.checkOut === day.iso);
-  const dayPlans = plans
+    const dayPlans = plans
     .filter(p => p.date === day.iso)
-    .sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
-  const mapStops = dayPlans.filter(p => p.lat && p.lng);
+    .sort((a, b) => {
+      const ao = a.order ?? 1000;
+      const bo = b.order ?? 1000;
+      if (ao !== bo) return ao - bo;
+      return (a.time || '99:99').localeCompare(b.time || '99:99');
+    });
+      const mapStops = dayPlans.filter(p => p.lat && p.lng);
+        const movePlan = async (plan, direction) => {
+    const list = [...dayPlans];
+    const i = list.findIndex(p => p.id === plan.id);
+    const j = i + direction;
+    if (j < 0 || j >= list.length) return;
+
+    [list[i], list[j]] = [list[j], list[i]];
+
+    try {
+      await Promise.all(
+        list.map((p, index) =>
+          firestoreFetch(
+            `https://firestore.googleapis.com/v1/${p.id}?updateMask.fieldPaths=order`,
+            authToken,
+            {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                fields: { order: { integerValue: String(index) } },
+              }),
+            }
+          )
+        )
+      );
+      await loadAll();
+    } catch (error) {
+      console.error('Error moving plan:', error);
+      alert('Could not reorder.');
+    }
+  };
+                const saveOrder = async list => {
+    try {
+      await Promise.all(
+        list.map((p, index) =>
+          firestoreFetch(
+            `https://firestore.googleapis.com/v1/${p.id}?updateMask.fieldPaths=order`,
+            authToken,
+            {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                fields: { order: { integerValue: String(index) } },
+              }),
+            }
+          )
+        )
+      );
+      await loadAll();
+    } catch (error) {
+      console.error('Error saving order:', error);
+      alert('Could not save the new order.');
+    }
+  };
   const nothing =
     !departing.length && !arriving.length && !stayingTonight.length &&
     !checkingOut.length && !dayPlans.length;
@@ -210,14 +274,23 @@ export default function ItineraryScreen({ authToken, profile }) {
           </View>
         ))}
 
-        {dayPlans.length > 0 && <Text style={styles.section}>Plans</Text>}
-        {dayPlans.map(p => {
+        {dayPlans.length > 0 && (
+          <View style={styles.sectionRow}>
+            <Text style={[styles.section, { marginBottom: 0 }]}>Plans</Text>
+            {dayPlans.length > 1 && (
+              <TouchableOpacity style={styles.reorderBtn} onPress={() => setReordering(true)}>
+                <Text style={styles.smallBtnText}>↕️ Reorder</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+        {dayPlans.map((p, index) => {
           const iAmIn = p.joining.includes(profile.name);
           return (
             <View key={p.id} style={styles.card}>
               <View style={styles.row}>
                 <Text style={[styles.cardTitle, { flex: 1 }]}>
-                  {getCategory(p.category).emoji} {p.time ? `${p.time} · ` : ''}{p.spotName}
+                    {index + 1}. {getCategory(p.category).emoji} {p.time ? `${p.time} · ` : ''}{p.spotName}
                 </Text>
                 <Text style={p.status === 'booked' ? styles.booked : styles.planned}>
                   {p.status === 'booked' ? '✅ Booked' : '📝 Planned'}
@@ -236,7 +309,10 @@ export default function ItineraryScreen({ authToken, profile }) {
                 ))}
               </View>
 
-              <View style={[styles.row, { marginTop: 10 }]}>
+                            <View style={[styles.row, { marginTop: 10 }]}>
+                <TouchableOpacity style={styles.smallBtn}   onPress={() => openInGoogleMaps(p.lat, p.lng, p.spotName)}>
+                  <Text style={styles.smallBtnText}>📍 Maps</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.smallBtn} onPress={() => toggleJoin(p)}>
                   <Text style={styles.smallBtnText}>{iAmIn ? 'Leave' : "I'm in"}</Text>
                 </TouchableOpacity>
@@ -244,6 +320,12 @@ export default function ItineraryScreen({ authToken, profile }) {
                   <Text style={styles.smallBtnText}>
                     {p.status === 'booked' ? 'Mark planned' : 'Mark booked'}
                   </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.smallBtn} onPress={() => movePlan(p, -1)}>
+                  <Text style={styles.smallBtnText}>▲</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.smallBtn} onPress={() => movePlan(p, 1)}>
+                  <Text style={styles.smallBtnText}>▼</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.smallBtn, { backgroundColor: colors.danger }]} onPress={() => removePlan(p)}>
                   <Text style={styles.smallBtnText}>🗑️</Text>
@@ -279,8 +361,15 @@ export default function ItineraryScreen({ authToken, profile }) {
           </Text>
         )}
 
-        <View style={{ height: 30 }} />
+                <View style={{ height: 30 }} />
       </ScrollView>
+
+      <ReorderModal
+        visible={reordering}
+        plans={dayPlans}
+        onSave={saveOrder}
+        onClose={() => setReordering(false)}
+      />
     </View>
   );
 }
@@ -304,4 +393,6 @@ const styles = StyleSheet.create({
   planned: { color: colors.highlight, fontSize: 12, fontWeight: 'bold' },
   smallBtn: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, marginRight: 8 },
   smallBtnText: { color: colors.text, fontSize: 12, fontWeight: 'bold' },
+    sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, marginBottom: 6 },
+  reorderBtn: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 },
 });

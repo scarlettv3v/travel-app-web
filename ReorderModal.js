@@ -1,0 +1,168 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Text,
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  Modal,
+  ScrollView,
+  PanResponder,
+} from 'react-native';
+import { colors } from './theme';
+import { getCategory } from './categories';
+
+const ROW_H = 60;
+
+function DragRow({ label, index, top, dragging, onStart, onMove, onEnd }) {
+  const cb = useRef({});
+  cb.current = { index, onStart, onMove, onEnd };
+
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => cb.current.onStart(cb.current.index),
+      onPanResponderMove: (_, g) => cb.current.onMove(g.dy),
+      onPanResponderRelease: () => cb.current.onEnd(),
+      onPanResponderTerminate: () => cb.current.onEnd(),
+    })
+  ).current;
+
+  return (
+    <View style={[styles.row, { top }, dragging && styles.rowDragging]}>
+      <Text style={styles.rowText} numberOfLines={1}>
+        {label}
+      </Text>
+      <View style={styles.handle} {...pan.panHandlers}>
+        <Text style={styles.handleText}>☰</Text>
+      </View>
+    </View>
+  );
+}
+
+export default function ReorderModal({ visible, plans, onSave, onClose }) {
+  const [items, setItems] = useState([]);
+  const [dragId, setDragId] = useState(null);
+  const [dragY, setDragY] = useState(0);
+  const itemsRef = useRef([]);
+  const startOrder = useRef([]);
+  const startIndex = useRef(0);
+
+  // Copy the day's plans each time the pop-up opens
+  useEffect(() => {
+    if (visible) {
+      setItems(plans);
+      itemsRef.current = plans;
+    }
+  }, [visible]);
+
+  const handleStart = index => {
+    startOrder.current = itemsRef.current;
+    startIndex.current = index;
+    setDragId(itemsRef.current[index].id);
+    setDragY(0);
+  };
+
+  const handleMove = dy => {
+    const n = startOrder.current.length;
+    setDragY(dy);
+
+    const target = Math.max(
+      0,
+      Math.min(n - 1, Math.round((startIndex.current * ROW_H + dy) / ROW_H))
+    );
+    const dragged = startOrder.current[startIndex.current];
+    const rest = startOrder.current.filter(p => p.id !== dragged.id);
+    rest.splice(target, 0, dragged);
+
+    itemsRef.current = rest;
+    setItems(rest);
+  };
+
+  const handleEnd = () => {
+    setDragId(null);
+    setDragY(0);
+  };
+
+  const n = items.length;
+  const maxTop = Math.max(0, (n - 1) * ROW_H);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.backdrop}>
+        <View style={styles.card}>
+          <Text style={styles.title}>↕️ Reorder stops</Text>
+          <Text style={styles.sub}>Hold ☰ and drag a stop up or down</Text>
+
+          <ScrollView scrollEnabled={!dragId} style={{ maxHeight: 420 }}>
+            <View style={{ height: n * ROW_H }}>
+              {items.map((p, index) => {
+                const isDragging = p.id === dragId;
+                const top = isDragging
+                  ? Math.max(0, Math.min(maxTop, startIndex.current * ROW_H + dragY))
+                  : index * ROW_H;
+                const label = `${index + 1}. ${getCategory(p.category).emoji} ${
+                  p.time ? p.time + ' · ' : ''
+                }${p.spotName}`;
+
+                return (
+                  <DragRow
+                    key={p.id}
+                    label={label}
+                    index={index}
+                    top={top}
+                    dragging={isDragging}
+                    onStart={handleStart}
+                    onMove={handleMove}
+                    onEnd={handleEnd}
+                  />
+                );
+              })}
+            </View>
+          </ScrollView>
+
+          <View style={{ flexDirection: 'row', marginTop: 14 }}>
+            <TouchableOpacity
+              style={[styles.saveBtn, { flex: 1, marginRight: 8 }]}
+              onPress={() => {
+                onSave(itemsRef.current);
+                onClose();
+              }}
+            >
+              <Text style={styles.btnText}>Save order</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
+              <Text style={styles.btnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 15 },
+  card: { backgroundColor: colors.cardDark, borderRadius: 10, padding: 14, borderWidth: 1, borderColor: colors.primary },
+  title: { color: colors.primary, fontWeight: 'bold', fontSize: 16 },
+  sub: { color: colors.textMuted, fontSize: 12, marginTop: 4, marginBottom: 12 },
+  row: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: ROW_H - 8,
+    backgroundColor: colors.card,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 12,
+  },
+  rowDragging: { backgroundColor: '#1f3a5f', borderWidth: 1, borderColor: colors.primary, zIndex: 10 },
+  rowText: { flex: 1, color: colors.text, fontSize: 14, fontWeight: 'bold' },
+  handle: { width: 56, height: '100%', alignItems: 'center', justifyContent: 'center' },
+  handleText: { color: colors.textMuted, fontSize: 22 },
+  saveBtn: { backgroundColor: colors.success, padding: 12, borderRadius: 8, alignItems: 'center' },
+  cancelBtn: { backgroundColor: colors.danger, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 8, alignItems: 'center' },
+  btnText: { color: colors.text, fontWeight: 'bold', fontSize: 14 },
+});

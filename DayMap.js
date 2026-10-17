@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Text, View, StyleSheet, Platform } from 'react-native';
 import { colors } from './theme';
+import { openInGoogleMaps } from './maps';
 
 let MapView, Marker, Polyline;
 if (Platform.OS !== 'web') {
@@ -83,7 +84,8 @@ export default function DayMap({ stops }) {
             key={s.id}
             coordinate={{ latitude: s.lat, longitude: s.lng }}
             title={`${i + 1}. ${s.spotName}`}
-            description={s.time || ''}
+                        description={`${s.time ? s.time + ' · ' : ''}Tap to open in Google Maps`}
+             onCalloutPress={() => openInGoogleMaps(s.lat, s.lng, s.spotName)}
           >
             <View style={styles.pin}>
               <Text style={styles.pinText}>{i + 1}</Text>
