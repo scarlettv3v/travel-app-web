@@ -18,8 +18,9 @@ import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import SpotsScreen from './SpotsScreen';
 import ExpensesScreen from './ExpensesScreen';
 import BookingsScreen from './BookingsScreen';
+import ItineraryScreen from './ItineraryScreen';
+import Avatar from './Avatar';
 import ProfileScreen from './ProfileScreen';
-import { getCharacter } from './characters';
 import ProfileSetupScreen from './ProfileSetupScreen';
 
 export default function App() {
@@ -201,37 +202,38 @@ export default function App() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ flex: 1 }}>
-               {tab === 'spots' ? (
-         <SpotsScreen authToken={authToken} profile={profile} />
-) : tab === 'bookings' ? (
-  <BookingsScreen authToken={authToken} profile={profile} />
-) : tab === 'expenses' ? (
-  <ExpensesScreen authToken={authToken} profile={profile} />
-) : (
-  <ProfileScreen profile={profile} />
-)}
+        {tab === 'spots' ? (
+          <SpotsScreen authToken={authToken} profile={profile} />
+        ) : tab === 'bookings' ? (
+          <BookingsScreen authToken={authToken} profile={profile} />
+        ) : tab === 'itinerary' ? (
+          <ItineraryScreen authToken={authToken} profile={profile} />
+        ) : tab === 'expenses' ? (
+          <ExpensesScreen authToken={authToken} profile={profile} />
+        ) : (
+          <ProfileScreen profile={profile} />
+        )}
+
+        <TouchableOpacity style={styles.meBtn} onPress={() => setTab('me')}>
+          <Avatar characterId={profile.character} size={36} />
+        </TouchableOpacity>
       </View>
 
       <View style={tabs.bar}>
         <TouchableOpacity style={tabs.btn} onPress={() => setTab('spots')}>
-          <Text style={[tabs.text, tab === 'spots' && tabs.active]}>
-            🗺️ Spots
-          </Text>
+          <Text style={[tabs.text, tab === 'spots' && tabs.active]}>🗺️ Spots</Text>
         </TouchableOpacity>
+
         <TouchableOpacity style={tabs.btn} onPress={() => setTab('bookings')}>
-          <Text style={[tabs.text, tab === 'bookings' && tabs.active]}>
-            🧳 Bookings
-          </Text>
+          <Text style={[tabs.text, tab === 'bookings' && tabs.active]}>🧳 Bookings</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity style={tabs.btn} onPress={() => setTab('itinerary')}>
+          <Text style={[tabs.text, tab === 'itinerary' && tabs.active]}>📅 Plan</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={tabs.btn} onPress={() => setTab('expenses')}>
-          <Text style={[tabs.text, tab === 'expenses' && tabs.active]}>
-            💰 Expenses
-          </Text>
-        </TouchableOpacity>
-                <TouchableOpacity style={tabs.btn} onPress={() => setTab('me')}>
-          <Text style={[tabs.text, tab === 'me' && tabs.active]}>
-            {getCharacter(profile.character).emoji} Me
-          </Text>
+          <Text style={[tabs.text, tab === 'expenses' && tabs.active]}>💰 Expenses</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -277,6 +279,12 @@ const styles = StyleSheet.create({
     marginTop: 14,
     textAlign: 'center',
   },
+    meBtn: {
+    position: 'absolute',
+    top: 40,
+    right: 12,
+    zIndex: 20,
+  },
 });
 
 const tabs = StyleSheet.create({
@@ -287,7 +295,7 @@ const tabs = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  btn: { flex: 1, padding: 14, alignItems: 'center' },
-  text: { color: colors.textDim, fontSize: 15, fontWeight: 'bold' },
+  btn: { flex: 1, paddingVertical: 14, paddingHorizontal: 4, alignItems: 'center' },
+  text: { color: colors.textDim, fontSize: 12, fontWeight: 'bold' },
   active: { color: colors.primary },
 });
