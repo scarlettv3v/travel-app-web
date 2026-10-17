@@ -17,6 +17,7 @@ import { colors } from './theme';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import SpotsScreen from './SpotsScreen';
 import ExpensesScreen from './ExpensesScreen';
+import BookingsScreen from './BookingsScreen';
 import ProfileScreen from './ProfileScreen';
 import { getCharacter } from './characters';
 import ProfileSetupScreen from './ProfileSetupScreen';
@@ -201,12 +202,14 @@ export default function App() {
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ flex: 1 }}>
                {tab === 'spots' ? (
-          <SpotsScreen authToken={authToken} profile={profile} />
-        ) : tab === 'expenses' ? (
-          <ExpensesScreen authToken={authToken} profile={profile} />
-        ) : (
-          <ProfileScreen profile={profile} />
-        )}
+         <SpotsScreen authToken={authToken} profile={profile} />
+) : tab === 'bookings' ? (
+  <BookingsScreen authToken={authToken} profile={profile} />
+) : tab === 'expenses' ? (
+  <ExpensesScreen authToken={authToken} profile={profile} />
+) : (
+  <ProfileScreen profile={profile} />
+)}
       </View>
 
       <View style={tabs.bar}>
@@ -215,7 +218,11 @@ export default function App() {
             🗺️ Spots
           </Text>
         </TouchableOpacity>
-
+        <TouchableOpacity style={tabs.btn} onPress={() => setTab('bookings')}>
+          <Text style={[tabs.text, tab === 'bookings' && tabs.active]}>
+            🧳 Bookings
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity style={tabs.btn} onPress={() => setTab('expenses')}>
           <Text style={[tabs.text, tab === 'expenses' && tabs.active]}>
             💰 Expenses
