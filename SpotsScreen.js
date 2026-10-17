@@ -10,9 +10,11 @@ import {
   Platform,
   ActivityIndicator,
   Linking,
+  Modal,
 } from 'react-native';
 import { colors } from './theme';
 import Avatar from './Avatar';
+import AddToDayCard from './AddToDayCard';
 import { CATEGORIES, getCategory } from './categories';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 
@@ -63,6 +65,7 @@ export default function SpotsScreen({ authToken, profile }) {
   const [editNote, setEditNote] = useState('');
   const [placeCategory, setPlaceCategory] = useState('spot');
   const [editCategory, setEditCategory] = useState('spot');
+    const [planningSpot, setPlanningSpot] = useState(null);
   const loadSpots = useCallback(async () => {
     try {
       const response = await firestoreFetch(DB_URL, authToken);
@@ -423,8 +426,29 @@ export default function SpotsScreen({ authToken, profile }) {
             </View>
           </View>
         )}
-
-        <Text style={styles.subtitle}>Saved Spots ({placesList.length})</Text>
+                <Modal
+          visible={!!planningSpot}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setPlanningSpot(null)}
+        >
+          <View style={styles.modalBackdrop}>
+            <ScrollView
+              contentContainerStyle={{ padding: 15, paddingTop: 60, paddingBottom: 40 }}
+              keyboardShouldPersistTaps="handled"
+            >
+              {planningSpot && (
+                <AddToDayCard
+                  spot={planningSpot}
+                  authToken={authToken}
+                  profile={profile}
+                  onClose={() => setPlanningSpot(null)}
+                />
+              )}
+            </ScrollView>
+          </View>
+        </Modal>
+                <Text style={styles.subtitle}>Saved Spots ({placesList.length})</Text>
 
         <ScrollView style={styles.listContainer}>
           {placesList.map((place, index) => (
@@ -433,10 +457,10 @@ export default function SpotsScreen({ authToken, profile }) {
               style={styles.placeCard}
               onPress={() => handleFocusSpot(place)}
             >
-                           <View style={styles.cardHeader}>
-              <Text style={[styles.placeText, { flex: 1 }]}>
-  {getCategory(place.category).emoji} {place.name}
-</Text>
+              <View style={styles.cardHeader}>
+                <Text style={[styles.placeText, { flex: 1 }]}>
+                  {getCategory(place.category).emoji} {place.name}
+                </Text>
                 {place.createdByCharacter ? (
                   <Avatar characterId={place.createdByCharacter} size={30} />
                 ) : null}
@@ -449,6 +473,17 @@ export default function SpotsScreen({ authToken, profile }) {
               {place.note ? (
                 <Text style={styles.noteText}>📝 {place.note}</Text>
               ) : null}
+
+              <TouchableOpacity
+                style={styles.planBtn}
+                onPress={() => {
+                  setPlanningSpot(place);
+                  setSelectedPlace(null);
+                  setEditingSpot(null);
+                }}
+              >
+                <Text style={styles.actionBtnText}>📅 Add to day</Text>
+              </TouchableOpacity>
 
               <View style={styles.cardActions}>
                 <TouchableOpacity
@@ -520,4 +555,6 @@ const styles = StyleSheet.create({
     catChip: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 6, marginBottom: 6, borderWidth: 1, borderColor: colors.input },
   catChipOn: { borderColor: colors.primary, backgroundColor: '#1f3a5f' },
   catText: { color: colors.text, fontSize: 13 },
+    planBtn: { backgroundColor: colors.primary, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, alignSelf: 'flex-start', marginTop: 10 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)' },
 });

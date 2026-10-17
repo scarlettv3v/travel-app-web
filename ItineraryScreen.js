@@ -3,39 +3,18 @@ import { Text, View, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { colors } from './theme';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
-import { TRIP_START, TRIP_END } from './trip';
+import { DAYS } from './trip';
+import { getCategory } from './categories';
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-
-// Builds ['2026-11-22', '2026-11-23', ...] from the trip dates
-function buildDays() {
-  const days = [];
-  const [sy, sm, sd] = TRIP_START.split('-').map(Number);
-  const end = Date.UTC(...TRIP_END.split('-').map((n, i) => (i === 1 ? n - 1 : Number(n))));
-  let t = Date.UTC(sy, sm - 1, sd);
-  while (t <= end) {
-    const d = new Date(t);
-    const iso = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-    days.push({
-      iso,
-      dayNumber: days.length + 1,
-      short: `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`,
-      weekday: WEEKDAYS[d.getUTCDay()],
-    });
-    t += 24 * 60 * 60 * 1000;
-  }
-  return days;
-}
-
-const DAYS = buildDays();
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
 const TRANSPORT_EMOJI = { flight: '✈️', car: '🚗', train: '🚆', ferry: '⛴️' };
 
-export default function ItineraryScreen({ authToken }) {
+export default function ItineraryScreen({ authToken, profile }) {
   const [selected, setSelected] = useState(0);
   const [transport, setTransport] = useState([]);
   const [stays, setStays] = useState([]);
+  const [plans, setPlans] = useState([]);
+  const [characters, setCharacters] = useState({});
 
   const loadAll = useCallback(async () => {
     try {
@@ -71,6 +50,30 @@ export default function ItineraryScreen({ authToken }) {
           addedByCharacter: str(doc, 'addedByCharacter'),
         }))
       );
+
+      const pRes = await firestoreFetch(`${FIRESTORE_BASE}/plans?pageSize=300`, authToken);
+      const pData = await pRes.json();
+      setPlans(
+        (pData.documents || []).map(doc => ({
+          id: doc.name,
+          spotName: str(doc, 'spotName'),
+          category: str(doc, 'category') || 'spot',
+          note: str(doc, 'note'),
+          date: str(doc, 'date'),
+          time: str(doc, 'time'),
+          status: str(doc, 'status') || 'planned',
+          joining: (doc.fields?.joining?.arrayValue?.values || []).map(v => v.stringValue),
+          addedByName: str(doc, 'addedByName'),
+        }))
+      );
+
+      const prRes = await firestoreFetch(`${FIRESTORE_BASE}/profiles?pageSize=300`, authToken);
+      const prData = await prRes.json();
+      const map = {};
+      (prData.documents || []).forEach(doc => {
+        map[str(doc, 'name')] = str(doc, 'character') || 'fox';
+      });
+      setCharacters(map);
     } catch (error) {
       console.error('Error loading itinerary:', error);
     }
@@ -83,33 +86,73 @@ export default function ItineraryScreen({ authToken }) {
     return () => clearInterval(timer);
   }, [authToken, loadAll]);
 
+  const patchPlan = async (plan, fields, masks) => {
+    try {
+      const mask = masks.map(m => `updateMask.fieldPaths=${m}`).join('&');
+      await firestoreFetch(`https://firestore.googleapis.com/v1/${plan.id}?${mask}`, authToken, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields }),
+      });
+      await loadAll();
+    } catch (error) {
+      console.error('Error updating plan:', error);
+      alert('Could not update.');
+    }
+  };
+
+  const toggleJoin = plan => {
+    const next = plan.joining.includes(profile.name)
+      ? plan.joining.filter(n => n !== profile.name)
+      : [...plan.joining, profile.name];
+    patchPlan(
+      plan,
+      { joining: { arrayValue: { values: next.map(n => ({ stringValue: n })) } } },
+      ['joining']
+    );
+  };
+
+  const toggleStatus = plan =>
+    patchPlan(
+      plan,
+      { status: { stringValue: plan.status === 'booked' ? 'planned' : 'booked' } },
+      ['status']
+    );
+
+  const removePlan = async plan => {
+    try {
+      await firestoreFetch(`https://firestore.googleapis.com/v1/${plan.id}`, authToken, {
+        method: 'DELETE',
+      });
+      await loadAll();
+    } catch (error) {
+      console.error('Error removing plan:', error);
+      alert('Could not remove.');
+    }
+  };
+
   const day = DAYS[selected];
 
-  // Transport leaving this day, or arriving this day (if it lands on a different date)
   const departing = transport
     .filter(t => t.departDate === day.iso)
     .sort((a, b) => a.departTime.localeCompare(b.departTime));
-  const arriving = transport.filter(
-    t => t.arriveDate === day.iso && t.departDate !== day.iso
-  );
-
-  // Hotel for tonight: check-in <= day < check-out
+  const arriving = transport.filter(t => t.arriveDate === day.iso && t.departDate !== day.iso);
   const stayingTonight = stays.filter(s => s.checkIn <= day.iso && day.iso < s.checkOut);
   const checkingOut = stays.filter(s => s.checkOut === day.iso);
+  const dayPlans = plans
+    .filter(p => p.date === day.iso)
+    .sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
 
   const nothing =
-    !departing.length && !arriving.length && !stayingTonight.length && !checkingOut.length;
+    !departing.length && !arriving.length && !stayingTonight.length &&
+    !checkingOut.length && !dayPlans.length;
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>📅 Itinerary</Text>
 
       <View style={{ height: 70 }}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 12 }}
-        >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
           {DAYS.map((d, index) => (
             <TouchableOpacity
               key={d.iso}
@@ -155,11 +198,52 @@ export default function ItineraryScreen({ authToken }) {
                 Arrives {t.arriveDate !== day.iso ? `${t.arriveDate} ` : ''}{t.arriveTime}
               </Text>
             ) : null}
-            {t.confirmation ? (
-              <Text style={styles.hint}>Confirmation: {t.confirmation}</Text>
-            ) : null}
+            {t.confirmation ? <Text style={styles.hint}>Confirmation: {t.confirmation}</Text> : null}
           </View>
         ))}
+
+        {dayPlans.length > 0 && <Text style={styles.section}>Plans</Text>}
+        {dayPlans.map(p => {
+          const iAmIn = p.joining.includes(profile.name);
+          return (
+            <View key={p.id} style={styles.card}>
+              <View style={styles.row}>
+                <Text style={[styles.cardTitle, { flex: 1 }]}>
+                  {getCategory(p.category).emoji} {p.time ? `${p.time} · ` : ''}{p.spotName}
+                </Text>
+                <Text style={p.status === 'booked' ? styles.booked : styles.planned}>
+                  {p.status === 'booked' ? '✅ Booked' : '📝 Planned'}
+                </Text>
+              </View>
+
+              {p.note ? <Text style={styles.noteText}>{p.note}</Text> : null}
+
+              <View style={[styles.row, { marginTop: 8 }]}>
+                <Text style={styles.hint}>Joining: </Text>
+                {p.joining.length === 0 && <Text style={styles.hint}>nobody yet</Text>}
+                {p.joining.map(name => (
+                  <View key={name} style={{ marginRight: 4 }}>
+                    <Avatar characterId={characters[name] || 'fox'} size={24} />
+                  </View>
+                ))}
+              </View>
+
+              <View style={[styles.row, { marginTop: 10 }]}>
+                <TouchableOpacity style={styles.smallBtn} onPress={() => toggleJoin(p)}>
+                  <Text style={styles.smallBtnText}>{iAmIn ? 'Leave' : "I'm in"}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.smallBtn} onPress={() => toggleStatus(p)}>
+                  <Text style={styles.smallBtnText}>
+                    {p.status === 'booked' ? 'Mark planned' : 'Mark booked'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.smallBtn, { backgroundColor: colors.danger }]} onPress={() => removePlan(p)}>
+                  <Text style={styles.smallBtnText}>🗑️</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })}
 
         {checkingOut.length > 0 && <Text style={styles.section}>Check-out today</Text>}
         {checkingOut.map(s => (
@@ -177,17 +261,17 @@ export default function ItineraryScreen({ authToken }) {
             </View>
             {s.address ? <Text style={styles.hint}>{s.address}</Text> : null}
             {s.checkIn === day.iso ? <Text style={styles.hint}>Check-in today</Text> : null}
-            {s.confirmation ? (
-              <Text style={styles.hint}>Confirmation: {s.confirmation}</Text>
-            ) : null}
+            {s.confirmation ? <Text style={styles.hint}>Confirmation: {s.confirmation}</Text> : null}
           </View>
         ))}
 
         {nothing && (
           <Text style={[styles.hint, { textAlign: 'center', marginTop: 20 }]}>
-            Nothing planned for this day yet.
+            Nothing planned for this day yet. Add spots from the Spots tab with "Add to day".
           </Text>
         )}
+
+        <View style={{ height: 30 }} />
       </ScrollView>
     </View>
   );
@@ -203,8 +287,13 @@ const styles = StyleSheet.create({
   dayHeading: { color: colors.text, fontSize: 18, fontWeight: 'bold', marginBottom: 4 },
   section: { color: colors.textMuted, fontSize: 13, fontWeight: 'bold', marginTop: 14, marginBottom: 6, textTransform: 'uppercase' },
   card: { backgroundColor: colors.card, padding: 12, borderRadius: 8, marginBottom: 10 },
-  row: { flexDirection: 'row', alignItems: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   cardTitle: { color: colors.text, fontSize: 15, fontWeight: 'bold' },
   line: { color: colors.text, fontSize: 14, marginTop: 4 },
   hint: { color: colors.textMuted, fontSize: 13, marginTop: 4 },
+  noteText: { color: colors.textSoft, fontSize: 13, marginTop: 4, fontStyle: 'italic' },
+  booked: { color: colors.success, fontSize: 12, fontWeight: 'bold' },
+  planned: { color: colors.highlight, fontSize: 12, fontWeight: 'bold' },
+  smallBtn: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, marginRight: 8 },
+  smallBtnText: { color: colors.text, fontSize: 12, fontWeight: 'bold' },
 });
