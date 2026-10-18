@@ -19,6 +19,7 @@ import { openInGoogleMaps } from './maps';
 import { CATEGORIES, getCategory } from './categories';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import { useTrip } from './trip';
+import ImportSpot from './ImportSpot';
 
 let MapView, Marker;
 if (Platform.OS !== 'web') {
@@ -58,6 +59,7 @@ export default function SpotsScreen({ authToken, profile }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+    const [importOpen, setImportOpen] = useState(false);
 
   const [selectedPlace, setSelectedPlace] = useState(null);
   const [placeNote, setPlaceNote] = useState('');
@@ -333,6 +335,10 @@ export default function SpotsScreen({ authToken, profile }) {
           </TouchableOpacity>
         </View>
 
+        <TouchableOpacity style={styles.importBtn} onPress={() => setImportOpen(true)}>
+          <Text style={styles.actionBtnText}>🔗 Import from link / caption</Text>
+        </TouchableOpacity>
+
         {isSearching && (
           <ActivityIndicator color={colors.primary} style={{ marginTop: 8 }} />
         )}
@@ -491,6 +497,15 @@ export default function SpotsScreen({ authToken, profile }) {
             </View>
           </View>
         )}
+
+        <ImportSpot
+          visible={importOpen}
+          authToken={authToken}
+          profile={profile}
+          onClose={() => setImportOpen(false)}
+          onSaved={loadSpots}
+        />
+
                 <Modal
           visible={!!planningSpot}
           transparent
@@ -666,4 +681,5 @@ const styles = StyleSheet.create({
   plannedText: { color: colors.success, fontSize: 12, marginTop: 6 },
   unplannedText: { color: colors.textDim, fontSize: 12, marginTop: 6 },
     checkBtn: { backgroundColor: colors.googleBlue, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, alignSelf: 'flex-start', marginBottom: 8 },
-});
+  importBtn: { backgroundColor: colors.input, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, alignSelf: 'flex-start', marginTop: 8 },
+  });
