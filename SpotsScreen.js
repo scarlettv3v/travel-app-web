@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
+  Keyboard,
   Dimensions,
   Platform,
   ActivityIndicator,
@@ -430,14 +431,21 @@ export default function SpotsScreen({ authToken, profile }) {
               <Text style={styles.actionBtnText}>🔎 Check on Google Maps</Text>
             </TouchableOpacity>
               <CategoryPicker value={placeCategory} onChange={setPlaceCategory} />
-            <TextInput
-              style={[styles.input, styles.noteInput]}
-              placeholder="Notes (e.g. Camera settings, gear...)"
-              placeholderTextColor={colors.textDim}
-              value={placeNote}
-              onChangeText={setPlaceNote}
-              multiline={true}
-            />
+            
+
+<TextInput
+  style={[styles.input, styles.noteInput]}
+  placeholder="Notes (e.g. Camera settings, gear...)"
+  placeholderTextColor={colors.textDim}
+  value={placeNote}
+  onChangeText={setPlaceNote}
+  multiline={true}
+  blurOnSubmit={true}
+  returnKeyType="done"
+  onSubmitEditing={Keyboard.dismiss}
+/>
+
+
             <View style={styles.formButtons}>
               <TouchableOpacity
                 style={[styles.saveButton, { flex: 1, marginRight: 5 }]}
@@ -475,6 +483,9 @@ export default function SpotsScreen({ authToken, profile }) {
               value={editNote}
               onChangeText={setEditNote}
               multiline={true}
+              blurOnSubmit={true}
+  returnKeyType="done"
+  onSubmitEditing={Keyboard.dismiss}
             />
             <View style={styles.formButtons}>
               <TouchableOpacity
