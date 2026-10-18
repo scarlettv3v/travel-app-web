@@ -9,6 +9,7 @@ import DayMap from './DayMap';
 import { openInGoogleMaps } from './maps';
 import ReorderModal from './ReorderModal';
 import { getRoute, formatDuration, formatDistance } from './routing';
+import EditPlanModal from './EditPlanModal';
 
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
 const num = (doc, key) => {
@@ -26,6 +27,7 @@ export default function ItineraryScreen({ authToken, profile }) {
   const [characters, setCharacters] = useState({});
   const [reordering, setReordering] = useState(false);
     const [route, setRoute] = useState(null);
+      const [editingPlan, setEditingPlan] = useState(null);
   const loadAll = useCallback(async () => {
     try {
       const tRes = await firestoreFetch(`${FIRESTORE_BASE}/transport?pageSize=300`, authToken);
@@ -230,6 +232,32 @@ export default function ItineraryScreen({ authToken, profile }) {
       alert('Could not save the new order.');
     }
   };
+    const savePlanEdit = async (plan, date, time) => {
+    try {
+      let mask = 'updateMask.fieldPaths=date&updateMask.fieldPaths=time';
+      // Moving to another day clears the manual order, so it sorts by time there
+      if (date !== plan.date) mask += '&updateMask.fieldPaths=order';
+
+      await firestoreFetch(
+        `https://firestore.googleapis.com/v1/${plan.id}?${mask}`,
+        authToken,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fields: {
+              date: { stringValue: date },
+              time: { stringValue: time },
+            },
+          }),
+        }
+      );
+      await loadAll();
+    } catch (error) {
+      console.error('Error editing plan:', error);
+      alert('Could not save the changes.');
+    }
+  };
   const nothing =
     !departing.length && !arriving.length && !stayingTonight.length &&
     !checkingOut.length && !dayPlans.length;
@@ -339,6 +367,9 @@ export default function ItineraryScreen({ authToken, profile }) {
                 <TouchableOpacity style={styles.smallBtn}   onPress={() => openInGoogleMaps(p.lat, p.lng, p.spotName)}>
                   <Text style={styles.smallBtnText}>📍 Maps</Text>
                 </TouchableOpacity>
+                                <TouchableOpacity style={styles.smallBtn} onPress={() => setEditingPlan(p)}>
+                  <Text style={styles.smallBtnText}>✏️ Edit</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.smallBtn} onPress={() => toggleJoin(p)}>
                   <Text style={styles.smallBtnText}>{iAmIn ? 'Leave' : "I'm in"}</Text>
                 </TouchableOpacity>
@@ -346,12 +377,6 @@ export default function ItineraryScreen({ authToken, profile }) {
                   <Text style={styles.smallBtnText}>
                     {p.status === 'booked' ? 'Mark planned' : 'Mark booked'}
                   </Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.smallBtn} onPress={() => movePlan(p, -1)}>
-                  <Text style={styles.smallBtnText}>▲</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.smallBtn} onPress={() => movePlan(p, 1)}>
-                  <Text style={styles.smallBtnText}>▼</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.smallBtn, { backgroundColor: colors.danger }]} onPress={() => removePlan(p)}>
                   <Text style={styles.smallBtnText}>🗑️</Text>
@@ -395,6 +420,11 @@ export default function ItineraryScreen({ authToken, profile }) {
         plans={dayPlans}
         onSave={saveOrder}
         onClose={() => setReordering(false)}
+      />
+            <EditPlanModal
+        plan={editingPlan}
+        onSave={savePlanEdit}
+        onClose={() => setEditingPlan(null)}
       />
     </View>
   );
