@@ -11,7 +11,7 @@ if (Platform.OS !== 'web') {
   Polyline = Maps.Polyline;
 }
 
-export default function DayMap({ stops }) {
+export default function DayMap({ stops, routeCoords }) {
   const mapRef = useRef(null);
   const key = stops.map(s => s.id).join('|');
 
@@ -73,7 +73,11 @@ export default function DayMap({ stops }) {
       >
         {stops.length > 1 && (
           <Polyline
-            coordinates={stops.map(s => ({ latitude: s.lat, longitude: s.lng }))}
+                      coordinates={
+              routeCoords && routeCoords.length
+                ? routeCoords
+                : stops.map(s => ({ latitude: s.lat, longitude: s.lng }))
+            }
             strokeColor={colors.primary}
             strokeWidth={3}
           />

@@ -8,6 +8,7 @@ import { getCategory } from './categories';
 import DayMap from './DayMap';
 import { openInGoogleMaps } from './maps';
 import ReorderModal from './ReorderModal';
+import { getRoute, formatDuration, formatDistance } from './routing';
 
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
 const num = (doc, key) => {
@@ -24,6 +25,7 @@ export default function ItineraryScreen({ authToken, profile }) {
   const [plans, setPlans] = useState([]);
   const [characters, setCharacters] = useState({});
   const [reordering, setReordering] = useState(false);
+    const [route, setRoute] = useState(null);
   const loadAll = useCallback(async () => {
     try {
       const tRes = await firestoreFetch(`${FIRESTORE_BASE}/transport?pageSize=300`, authToken);
@@ -162,6 +164,19 @@ export default function ItineraryScreen({ authToken, profile }) {
       return (a.time || '99:99').localeCompare(b.time || '99:99');
     });
       const mapStops = dayPlans.filter(p => p.lat && p.lng);
+        const stopsKey = mapStops.map(s => `${s.lat},${s.lng}`).join(';');
+
+  useEffect(() => {
+    let active = true;
+    setRoute(null);
+    if (mapStops.length < 2) return;
+    getRoute(mapStops).then(r => {
+      if (active) setRoute(r);
+    });
+    return () => {
+      active = false;
+    };
+  }, [stopsKey]);
         const movePlan = async (plan, direction) => {
     const list = [...dayPlans];
     const i = list.findIndex(p => p.id === plan.id);
@@ -242,7 +257,12 @@ export default function ItineraryScreen({ authToken, profile }) {
         <Text style={styles.dayHeading}>
           Day {day.dayNumber} · {day.weekday} {day.short}
         </Text>
-        <DayMap stops={mapStops} />
+                <DayMap stops={mapStops} routeCoords={route ? route.coords : null} />
+        {route ? (
+          <Text style={styles.totalDrive}>
+            🚗 Total driving: {formatDuration(route.totalSeconds)} · {formatDistance(route.totalMeters)}
+          </Text>
+        ) : null}
         {arriving.length > 0 && <Text style={styles.section}>Arriving</Text>}
         {arriving.map(t => (
           <View key={t.id + 'a'} style={styles.card}>
@@ -286,6 +306,8 @@ export default function ItineraryScreen({ authToken, profile }) {
         )}
         {dayPlans.map((p, index) => {
           const iAmIn = p.joining.includes(profile.name);
+                    const stopIndex = mapStops.findIndex(s => s.id === p.id);
+          const leg = route && stopIndex >= 0 ? route.legs[stopIndex] : null;
           return (
             <View key={p.id} style={styles.card}>
               <View style={styles.row}>
@@ -308,7 +330,11 @@ export default function ItineraryScreen({ authToken, profile }) {
                   </View>
                 ))}
               </View>
-
+              {leg ? (
+                <Text style={styles.legText}>
+                  🚗 {formatDuration(leg.seconds)} · {formatDistance(leg.meters)} to next stop
+                </Text>
+              ) : null}
                             <View style={[styles.row, { marginTop: 10 }]}>
                 <TouchableOpacity style={styles.smallBtn}   onPress={() => openInGoogleMaps(p.lat, p.lng, p.spotName)}>
                   <Text style={styles.smallBtnText}>📍 Maps</Text>
@@ -395,4 +421,6 @@ const styles = StyleSheet.create({
   smallBtnText: { color: colors.text, fontSize: 12, fontWeight: 'bold' },
     sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, marginBottom: 6 },
   reorderBtn: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 },
+  totalDrive: { color: colors.success, fontSize: 14, fontWeight: 'bold', marginBottom: 6 },
+  legText: { color: colors.primary, fontSize: 13, marginTop: 8 },
 });
