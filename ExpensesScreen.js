@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Text,
   View,
@@ -20,9 +20,12 @@ import {
 const money = n => Number(n).toFixed(2);
 
 export default function ExpensesScreen({ authToken, profile }) {
+  const scrollRef = useRef(null);
   const [members, setMembers] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editOrig, setEditOrig] = useState(null); // { currency, rate } of the expense being edited
 
   const [what, setWhat] = useState('');
   const [amount, setAmount] = useState('');
@@ -32,7 +35,8 @@ export default function ExpensesScreen({ authToken, profile }) {
   const [category, setCategory] = useState('food');
   const [payer, setPayer] = useState('');
   const [split, setSplit] = useState([]);
-    const [displayCurrency, setDisplayCurrency] = useState(BASE_CURRENCY);
+
+  const [displayCurrency, setDisplayCurrency] = useState(BASE_CURRENCY);
   const [displayRate, setDisplayRate] = useState(1);
   const [displayNote, setDisplayNote] = useState('');
 
@@ -97,13 +101,19 @@ export default function ExpensesScreen({ authToken, profile }) {
     return () => clearInterval(timer);
   }, [authToken, loadAll]);
 
-  // Fetch a live exchange rate whenever the currency changes
+  // Rate for the form: live rate, or the saved rate when editing with the same currency
   useEffect(() => {
     if (!showForm) return;
 
     if (currency === BASE_CURRENCY) {
       setRate('1');
       setRateNote('');
+      return;
+    }
+
+    if (editOrig && currency === editOrig.currency) {
+      setRate(String(editOrig.rate));
+      setRateNote('Saved rate for this expense. Edit it if needed.');
       return;
     }
 
@@ -133,7 +143,8 @@ export default function ExpensesScreen({ authToken, profile }) {
     return () => {
       active = false;
     };
-  }, [currency, showForm]);
+  }, [currency, showForm, editOrig]);
+
   // Rate for showing the totals in another currency
   useEffect(() => {
     if (displayCurrency === BASE_CURRENCY) {
@@ -168,7 +179,14 @@ export default function ExpensesScreen({ authToken, profile }) {
       active = false;
     };
   }, [displayCurrency]);
+
+  const scrollTop = () => {
+    if (scrollRef.current) scrollRef.current.scrollTo({ y: 0, animated: true });
+  };
+
   const openForm = () => {
+    setEditingId(null);
+    setEditOrig(null);
     setWhat('');
     setAmount('');
     setCurrency(BASE_CURRENCY);
@@ -178,6 +196,28 @@ export default function ExpensesScreen({ authToken, profile }) {
     setPayer(profile.name);
     setSplit(members.map(member => member.name));
     setShowForm(true);
+    scrollTop();
+  };
+
+  const startEdit = expense => {
+    setEditingId(expense.id);
+    setEditOrig({ currency: expense.currency, rate: expense.rate });
+    setWhat(expense.what);
+    setAmount(String(expense.amount));
+    setCurrency(expense.currency);
+    setRate(String(expense.rate));
+    setRateNote('');
+    setCategory(expense.category);
+    setPayer(expense.payer);
+    setSplit(expense.split);
+    setShowForm(true);
+    scrollTop();
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setEditOrig(null);
   };
 
   const toggleSplit = name => {
@@ -211,31 +251,52 @@ export default function ExpensesScreen({ authToken, profile }) {
       return;
     }
 
-    try {
-      await firestoreFetch(`${FIRESTORE_BASE}/expenses`, authToken, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fields: {
-            what: { stringValue: what.trim() },
-            amount: { doubleValue: numericAmount },
-            currency: { stringValue: currency },
-            rate: { doubleValue: numericRate },
-            amountBase: { doubleValue: numericAmount * numericRate },
-            category: { stringValue: category },
-            payer: { stringValue: payer },
-            split: {
-              arrayValue: {
-                values: split.map(name => ({ stringValue: name })),
-              },
-            },
-            addedByName: { stringValue: profile.name },
-            addedByCharacter: { stringValue: profile.character },
-          },
-        }),
-      });
+    const fields = {
+      what: { stringValue: what.trim() },
+      amount: { doubleValue: numericAmount },
+      currency: { stringValue: currency },
+      rate: { doubleValue: numericRate },
+      amountBase: { doubleValue: numericAmount * numericRate },
+      category: { stringValue: category },
+      payer: { stringValue: payer },
+      split: {
+        arrayValue: {
+          values: split.map(name => ({ stringValue: name })),
+        },
+      },
+    };
 
-      setShowForm(false);
+    try {
+      if (editingId) {
+        // Editing: only change these fields, keep "Added by" as it was
+        const mask = Object.keys(fields)
+          .map(key => `updateMask.fieldPaths=${key}`)
+          .join('&');
+
+        await firestoreFetch(
+          `https://firestore.googleapis.com/v1/${editingId}?${mask}`,
+          authToken,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields }),
+          }
+        );
+      } else {
+        await firestoreFetch(`${FIRESTORE_BASE}/expenses`, authToken, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fields: {
+              ...fields,
+              addedByName: { stringValue: profile.name },
+              addedByCharacter: { stringValue: profile.character },
+            },
+          }),
+        });
+      }
+
+      closeForm();
       await loadAll();
     } catch (error) {
       console.error('Error saving expense:', error);
@@ -250,6 +311,7 @@ export default function ExpensesScreen({ authToken, profile }) {
         authToken,
         { method: 'DELETE' }
       );
+      if (id === editingId) closeForm();
       await loadAll();
     } catch (error) {
       console.error('Error deleting expense:', error);
@@ -317,9 +379,11 @@ export default function ExpensesScreen({ authToken, profile }) {
 
     return { byPerson, catTotals, grand };
   };
+
   const factor = displayRate || 1;
   const shownCurrency = displayRate ? displayCurrency : BASE_CURRENCY;
   const show = n => money(n * factor);
+
   const transfers = calculateTransfers();
   const breakdown = buildBreakdown();
   const totalSpent = expenses.reduce((sum, e) => sum + e.amountBase, 0);
@@ -328,112 +392,21 @@ export default function ExpensesScreen({ authToken, profile }) {
 
   return (
     <ScrollView
+      ref={scrollRef}
       style={styles.container}
       contentContainerStyle={{ padding: 15, paddingTop: 40 }}
       keyboardShouldPersistTaps="handled"
     >
       <Text style={styles.title}>💰 Trip Expenses</Text>
       <Text style={[styles.hint, { textAlign: 'center' }]}>
-           Totals shown in {shownCurrency}
+        Totals shown in {shownCurrency}
       </Text>
 
-      <Text style={styles.section}>Who's on the trip</Text>
-      <View style={styles.chipRow}>
-        {members.map(member => (
-          <View key={member.id} style={styles.chip}>
-            <Avatar characterId={member.character} size={22} />
-            <Text style={[styles.chipText, { marginLeft: 6 }]}>{member.name}</Text>
-          </View>
-        ))}
-      </View>
-      <Text style={styles.section}>Show totals in</Text>
-      <View style={styles.chipRow}>
-        {CURRENCIES.map(code => (
-          <TouchableOpacity
-            key={code}
-            style={[styles.pick, displayCurrency === code && styles.pickOn]}
-            onPress={() => setDisplayCurrency(code)}
-          >
-            <Text style={styles.chipText}>{code}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      {displayNote ? <Text style={styles.hint}>{displayNote}</Text> : null}
-      <Text style={styles.section}>Who owes who</Text>
-      <View style={styles.card}>
-        {transfers.length === 0 ? (
-          <Text style={styles.hint}>
-            {expenses.length === 0 ? 'No expenses yet.' : 'All settled up! 🎉'}
+      {showForm && (
+        <View style={[styles.card, editingId && { borderWidth: 1, borderColor: colors.highlight }]}>
+          <Text style={[styles.section, editingId && { color: colors.highlight }]}>
+            {editingId ? '✏️ Edit expense' : 'New expense'}
           </Text>
-        ) : (
-          transfers.map((transfer, index) => (
-            <Text key={index} style={styles.transferText}>
-              {transfer.from} owes {transfer.to}{' '}
-              <Text style={styles.amount}>
-                   {shownCurrency} {show(transfer.amount)}
-              </Text>
-            </Text>
-          ))
-        )}
-        <Text style={styles.hint}>
-             Total spent: {shownCurrency} {show(totalSpent)}
-        </Text>
-      </View>
-
-      <Text style={styles.section}>Breakdown by person</Text>
-      <View style={styles.card}>
-        {people.length === 0 ? (
-          <Text style={styles.hint}>Add an expense to see the breakdown.</Text>
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View>
-              <View style={styles.tRow}>
-                <Text style={[styles.tCell, styles.tFirst, styles.tHead]}>Share</Text>
-                {EXPENSE_CATEGORIES.map(c => (
-                  <Text key={c.id} style={[styles.tCell, styles.tHead]}>{c.emoji}</Text>
-                ))}
-                <Text style={[styles.tCell, styles.tHead]}>Total</Text>
-              </View>
-
-              {people.map(name => {
-                const row = breakdown.byPerson[name];
-                const total = Object.values(row).reduce((a, b) => a + b, 0);
-                return (
-                  <View key={name} style={styles.tRow}>
-                    <View style={[styles.tCell, styles.tFirst, { flexDirection: 'row', alignItems: 'center' }]}>
-                      <Avatar characterId={characterOf(name) || 'fox'} size={18} />
-                      <Text style={[styles.tText, { marginLeft: 4 }]} numberOfLines={1}>{name}</Text>
-                    </View>
-                    {EXPENSE_CATEGORIES.map(c => (
-                      <Text key={c.id} style={[styles.tCell, styles.tText]}>
-                        {row[c.id] ? show(row[c.id]) : '–'}
-                      </Text>
-                    ))}
-                    <Text style={[styles.tCell, styles.tText, styles.tBold]}>{show(total)}</Text>
-                  </View>
-                );
-              })}
-
-              <View style={[styles.tRow, styles.tTotalRow]}>
-                <Text style={[styles.tCell, styles.tFirst, styles.tText, styles.tBold]}>Everyone</Text>
-                {EXPENSE_CATEGORIES.map(c => (
-                  <Text key={c.id} style={[styles.tCell, styles.tText, styles.tBold]}>
-                    {breakdown.catTotals[c.id] ? show(breakdown.catTotals[c.id]) : '–'}
-                  </Text>
-                ))}
-                <Text style={[styles.tCell, styles.tText, styles.tBold]}>{show(breakdown.grand)}</Text>
-              </View>
-            </View>
-          </ScrollView>
-        )}
-        <Text style={styles.hint}>
-          Each person's share of the cost, not what they paid. 🍽️ food, 🚗 transport, 🏨 stay, 🎯 activity, 🛍️ shopping, 📦 other.
-        </Text>
-      </View>
-
-      {showForm ? (
-        <View style={styles.card}>
-          <Text style={styles.section}>New expense</Text>
 
           <TextInput
             style={styles.input}
@@ -534,14 +507,114 @@ export default function ExpensesScreen({ authToken, profile }) {
               style={[styles.greenButton, { flex: 1, marginRight: 8 }]}
               onPress={saveExpense}
             >
-              <Text style={styles.buttonText}>Save Expense</Text>
+              <Text style={styles.buttonText}>
+                {editingId ? 'Save Changes' : 'Save Expense'}
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.redButton} onPress={() => setShowForm(false)}>
+            <TouchableOpacity style={styles.redButton} onPress={closeForm}>
               <Text style={styles.buttonText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
-      ) : (
+      )}
+
+      <Text style={styles.section}>Who's on the trip</Text>
+      <View style={styles.chipRow}>
+        {members.map(member => (
+          <View key={member.id} style={styles.chip}>
+            <Avatar characterId={member.character} size={22} />
+            <Text style={[styles.chipText, { marginLeft: 6 }]}>{member.name}</Text>
+          </View>
+        ))}
+      </View>
+
+      <Text style={styles.section}>Show totals in</Text>
+      <View style={styles.chipRow}>
+        {CURRENCIES.map(code => (
+          <TouchableOpacity
+            key={code}
+            style={[styles.pick, displayCurrency === code && styles.pickOn]}
+            onPress={() => setDisplayCurrency(code)}
+          >
+            <Text style={styles.chipText}>{code}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      {displayNote ? <Text style={styles.hint}>{displayNote}</Text> : null}
+
+      <Text style={styles.section}>Who owes who</Text>
+      <View style={styles.card}>
+        {transfers.length === 0 ? (
+          <Text style={styles.hint}>
+            {expenses.length === 0 ? 'No expenses yet.' : 'All settled up! 🎉'}
+          </Text>
+        ) : (
+          transfers.map((transfer, index) => (
+            <Text key={index} style={styles.transferText}>
+              {transfer.from} owes {transfer.to}{' '}
+              <Text style={styles.amount}>
+                {shownCurrency} {show(transfer.amount)}
+              </Text>
+            </Text>
+          ))
+        )}
+        <Text style={styles.hint}>
+          Total spent: {shownCurrency} {show(totalSpent)}
+        </Text>
+      </View>
+
+      <Text style={styles.section}>Breakdown by person</Text>
+      <View style={styles.card}>
+        {people.length === 0 ? (
+          <Text style={styles.hint}>Add an expense to see the breakdown.</Text>
+        ) : (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View>
+              <View style={styles.tRow}>
+                <Text style={[styles.tCell, styles.tFirst, styles.tHead]}>Share</Text>
+                {EXPENSE_CATEGORIES.map(c => (
+                  <Text key={c.id} style={[styles.tCell, styles.tHead]}>{c.emoji}</Text>
+                ))}
+                <Text style={[styles.tCell, styles.tHead]}>Total</Text>
+              </View>
+
+              {people.map(name => {
+                const row = breakdown.byPerson[name];
+                const total = Object.values(row).reduce((a, b) => a + b, 0);
+                return (
+                  <View key={name} style={styles.tRow}>
+                    <View style={[styles.tCell, styles.tFirst, { flexDirection: 'row', alignItems: 'center' }]}>
+                      <Avatar characterId={characterOf(name) || 'fox'} size={18} />
+                      <Text style={[styles.tText, { marginLeft: 4 }]} numberOfLines={1}>{name}</Text>
+                    </View>
+                    {EXPENSE_CATEGORIES.map(c => (
+                      <Text key={c.id} style={[styles.tCell, styles.tText]}>
+                        {row[c.id] ? show(row[c.id]) : '–'}
+                      </Text>
+                    ))}
+                    <Text style={[styles.tCell, styles.tText, styles.tBold]}>{show(total)}</Text>
+                  </View>
+                );
+              })}
+
+              <View style={[styles.tRow, styles.tTotalRow]}>
+                <Text style={[styles.tCell, styles.tFirst, styles.tText, styles.tBold]}>Everyone</Text>
+                {EXPENSE_CATEGORIES.map(c => (
+                  <Text key={c.id} style={[styles.tCell, styles.tText, styles.tBold]}>
+                    {breakdown.catTotals[c.id] ? show(breakdown.catTotals[c.id]) : '–'}
+                  </Text>
+                ))}
+                <Text style={[styles.tCell, styles.tText, styles.tBold]}>{show(breakdown.grand)}</Text>
+              </View>
+            </View>
+          </ScrollView>
+        )}
+        <Text style={styles.hint}>
+          Each person's share of the cost, not what they paid. 🍽️ food, 🚗 transport, 🏨 stay, 🎯 activity, 🛍️ shopping, 📦 other.
+        </Text>
+      </View>
+
+      {!showForm && (
         <TouchableOpacity style={[styles.blueButton, { marginVertical: 10 }]} onPress={openForm}>
           <Text style={styles.buttonText}>+ Add Expense</Text>
         </TouchableOpacity>
@@ -580,12 +653,20 @@ export default function ExpensesScreen({ authToken, profile }) {
             </View>
           ) : null}
 
-          <TouchableOpacity
-            style={[styles.redButton, { alignSelf: 'flex-start', marginTop: 8 }]}
-            onPress={() => deleteExpense(expense.id)}
-          >
-            <Text style={styles.buttonText}>🗑️ Delete</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', marginTop: 8 }}>
+            <TouchableOpacity
+              style={[styles.editButton, { marginRight: 8 }]}
+              onPress={() => startEdit(expense)}
+            >
+              <Text style={styles.buttonText}>✏️ Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.redButton}
+              onPress={() => deleteExpense(expense.id)}
+            >
+              <Text style={styles.buttonText}>🗑️ Delete</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ))}
 
@@ -612,6 +693,7 @@ const styles = StyleSheet.create({
   blueButton: { backgroundColor: colors.primary, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, alignItems: 'center' },
   greenButton: { backgroundColor: colors.success, padding: 12, borderRadius: 8, alignItems: 'center' },
   redButton: { backgroundColor: colors.danger, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' },
+  editButton: { backgroundColor: colors.warning, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' },
   buttonText: { color: colors.text, fontWeight: 'bold', fontSize: 14 },
   transferText: { color: colors.text, fontSize: 15, marginBottom: 6 },
   amount: { color: colors.success, fontWeight: 'bold', fontSize: 15 },
