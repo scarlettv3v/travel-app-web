@@ -18,6 +18,7 @@ import AddToDayCard from './AddToDayCard';
 import { openInGoogleMaps } from './maps';
 import { CATEGORIES, getCategory } from './categories';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
+import { DAYS } from './trip';
 
 let MapView, Marker;
 if (Platform.OS !== 'web') {
@@ -68,6 +69,8 @@ export default function SpotsScreen({ authToken, profile }) {
   const [editCategory, setEditCategory] = useState('spot');
     const [planningSpot, setPlanningSpot] = useState(null);
       const [filter, setFilter] = useState('all');
+        const [plans, setPlans] = useState([]);
+  const [planFilter, setPlanFilter] = useState('any');
   const loadSpots = useCallback(async () => {
     try {
       const response = await firestoreFetch(DB_URL, authToken);
@@ -108,6 +111,31 @@ export default function SpotsScreen({ authToken, profile }) {
     const timer = setInterval(loadSpots, 5000);
     return () => clearInterval(timer);
   }, [authToken, loadSpots]);
+
+    useEffect(() => {
+    if (!authToken) return;
+
+    const loadPlans = async () => {
+      try {
+        const res = await firestoreFetch(`${FIRESTORE_BASE}/plans?pageSize=300`, authToken);
+        const data = await res.json();
+        setPlans(
+          (data.documents || []).map(doc => ({
+            spotName: doc.fields?.spotName?.stringValue || '',
+            date: doc.fields?.date?.stringValue || '',
+            lat: Number(doc.fields?.lat?.doubleValue ?? doc.fields?.lat?.integerValue ?? 0),
+            lng: Number(doc.fields?.lng?.doubleValue ?? doc.fields?.lng?.integerValue ?? 0),
+          }))
+        );
+      } catch (error) {
+        console.error('Error loading plans:', error);
+      }
+    };
+
+    loadPlans();
+    const timer = setInterval(loadPlans, 5000);
+    return () => clearInterval(timer);
+  }, [authToken]);
 
      const handleGetDirections = (lat, lng, name) => openInGoogleMaps(lat, lng, name);
 
@@ -249,10 +277,24 @@ export default function SpotsScreen({ authToken, profile }) {
       alert('Error saving spot!');
     }
   };
-  const visibleSpots =
-    filter === 'all'
-      ? placesList
-      : placesList.filter(p => (p.category || 'spot') === filter);
+    const daysFor = spot =>
+    plans
+      .filter(
+        p =>
+          p.spotName === spot.name &&
+          Math.abs(p.lat - (spot.lat || 0)) < 0.0001 &&
+          Math.abs(p.lng - (spot.lng || 0)) < 0.0001
+      )
+      .map(p => DAYS.find(d => d.iso === p.date))
+      .filter(Boolean);
+
+  const visibleSpots = placesList
+    .filter(p => filter === 'all' || (p.category || 'spot') === filter)
+    .filter(p => {
+      if (planFilter === 'any') return true;
+      const planned = daysFor(p).length > 0;
+      return planFilter === 'planned' ? planned : !planned;
+    });
 
   const handleFitAll = () => {
     const pts = visibleSpots.filter(s => s.lat && s.lng);
@@ -313,7 +355,21 @@ export default function SpotsScreen({ authToken, profile }) {
           </ScrollView>
         )}
       </View>
-
+        <View style={{ flexDirection: 'row', marginBottom: 6 }}>
+          {[
+            ['any', 'Any'],
+            ['planned', '📅 Planned'],
+            ['unplanned', '⏳ Not planned'],
+          ].map(([id, label]) => (
+            <TouchableOpacity
+              key={id}
+              onPress={() => setPlanFilter(id)}
+              style={[styles.catChip, planFilter === id && styles.catChipOn]}
+            >
+              <Text style={styles.catText}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       {/* Interactive Map */}
       <View style={styles.mapContainer}>
         {Platform.OS !== 'web' && MapView ? (
@@ -503,6 +559,17 @@ export default function SpotsScreen({ authToken, profile }) {
                 <Text style={styles.noteText}>📝 {place.note}</Text>
               ) : null}
 
+              {(() => {
+                const days = daysFor(place);
+                return days.length ? (
+                  <Text style={styles.plannedText}>
+                    📅 {days.map(d => `Day ${d.dayNumber} · ${d.short}`).join(', ')}
+                  </Text>
+                ) : (
+                  <Text style={styles.unplannedText}>⏳ Not planned yet</Text>
+                );
+              })()}
+
               <TouchableOpacity
                 style={styles.planBtn}
                 onPress={() => {
@@ -510,6 +577,7 @@ export default function SpotsScreen({ authToken, profile }) {
                   setSelectedPlace(null);
                   setEditingSpot(null);
                 }}
+          
               >
                 <Text style={styles.actionBtnText}>📅 Add to day</Text>
               </TouchableOpacity>
@@ -588,4 +656,6 @@ const styles = StyleSheet.create({
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)' },
     subtitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   fitBtn: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6 },
+  plannedText: { color: colors.success, fontSize: 12, marginTop: 6 },
+  unplannedText: { color: colors.textDim, fontSize: 12, marginTop: 6 },
 });
