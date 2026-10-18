@@ -4,25 +4,39 @@ export const TRIP_LABEL = '21 Nov – 2 Dec';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-function buildDays() {
-  const [sy, sm, sd] = TRIP_START.split('-').map(Number);
-  const [ey, em, ed] = TRIP_END.split('-').map(Number);
-  const end = Date.UTC(ey, em - 1, ed);
+const toUtc = iso => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return Date.UTC(y, m - 1, d);
+};
+
+const toIso = t => {
+  const d = new Date(t);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+};
+
+function buildRange(startT, endT) {
   const days = [];
-  let t = Date.UTC(sy, sm - 1, sd);
-  while (t <= end) {
+  for (let t = startT; t <= endT; t += DAY_MS) {
     const d = new Date(t);
-    const iso = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    const iso = toIso(t);
     days.push({
       iso,
       dayNumber: days.length + 1,
       short: `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`,
       weekday: WEEKDAYS[d.getUTCDay()],
+      inTrip: iso >= TRIP_START && iso <= TRIP_END,
     });
-    t += 24 * 60 * 60 * 1000;
   }
   return days;
 }
 
-export const DAYS = buildDays();
+// The trip days (used by the Plan tab)
+export const DAYS = buildRange(toUtc(TRIP_START), toUtc(TRIP_END));
+
+// A wider range for picking booking dates: 21 days before and after the trip
+export const PICK_DAYS = buildRange(
+  toUtc(TRIP_START) - 21 * DAY_MS,
+  toUtc(TRIP_END) + 21 * DAY_MS
+);

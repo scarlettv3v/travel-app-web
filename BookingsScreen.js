@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Text,
   View,
@@ -10,8 +10,7 @@ import {
 import { colors } from './theme';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
-import { TRIP_LABEL, DAYS } from './trip';
-
+import { TRIP_LABEL, PICK_DAYS } from './trip';
 
 const TYPES = [
   { id: 'flight', emoji: '✈️', label: 'Flight' },
@@ -26,9 +25,9 @@ const TRANSPORT_FORM = [
   ['reference', 'Flight / booking no. (e.g. NZ 123)'],
   ['from', 'From (e.g. Auckland AKL)'],
   ['to', 'To (e.g. Queenstown ZQN)'],
-  ['departDate', 'Departure date (YYYY-MM-DD)'],
+  ['departDate', 'Departure date'],
   ['departTime', 'Departure time (e.g. 14:35)'],
-  ['arriveDate', 'Arrival date (YYYY-MM-DD)'],
+  ['arriveDate', 'Arrival date'],
   ['arriveTime', 'Arrival time (e.g. 16:10)'],
   ['confirmation', 'Confirmation code'],
   ['notes', 'Notes (baggage, terminal...)'],
@@ -37,14 +36,14 @@ const TRANSPORT_FORM = [
 const STAY_FORM = [
   ['name', 'Hotel name'],
   ['address', 'Address'],
-  ['checkIn', 'Check-in date (YYYY-MM-DD)'],
-  ['checkOut', 'Check-out date (YYYY-MM-DD)'],
+  ['checkIn', 'Check-in date'],
+  ['checkOut', 'Check-out date'],
   ['confirmation', 'Confirmation code'],
   ['notes', 'Notes (breakfast, parking...)'],
 ];
 
-const isDate = text => /^\d{4}-\d{2}-\d{2}$/.test(text);
 const DATE_KEYS = ['departDate', 'arriveDate', 'checkIn', 'checkOut'];
+const isDate = text => /^\d{4}-\d{2}-\d{2}$/.test(text);
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
 
 function toFields(values) {
@@ -56,9 +55,11 @@ function toFields(values) {
 }
 
 export default function BookingsScreen({ authToken, profile }) {
+  const scrollRef = useRef(null);
   const [transport, setTransport] = useState([]);
   const [stays, setStays] = useState([]);
   const [formKind, setFormKind] = useState(null); // 'transport' | 'stay' | null
+  const [editingId, setEditingId] = useState(null);
   const [values, setValues] = useState({});
 
   const loadAll = useCallback(async () => {
@@ -119,9 +120,33 @@ export default function BookingsScreen({ authToken, profile }) {
     return () => clearInterval(timer);
   }, [authToken, loadAll]);
 
+  const scrollTop = () => {
+    if (scrollRef.current) scrollRef.current.scrollTo({ y: 0, animated: true });
+  };
+
   const openForm = kind => {
+    setEditingId(null);
     setValues(kind === 'transport' ? { type: 'flight' } : {});
     setFormKind(kind);
+    scrollTop();
+  };
+
+  const startEdit = (kind, item) => {
+    const keys = (kind === 'transport' ? TRANSPORT_FORM : STAY_FORM).map(([k]) => k);
+    const v = {};
+    keys.forEach(k => {
+      v[k] = item[k] || '';
+    });
+    if (kind === 'transport') v.type = item.type || 'flight';
+    setValues(v);
+    setEditingId(item.id);
+    setFormKind(kind);
+    scrollTop();
+  };
+
+  const closeForm = () => {
+    setFormKind(null);
+    setEditingId(null);
   };
 
   const setValue = (key, text) => setValues(prev => ({ ...prev, [key]: text }));
@@ -129,25 +154,39 @@ export default function BookingsScreen({ authToken, profile }) {
   const save = async () => {
     if (formKind === 'transport') {
       if (!values.from || !values.to || !isDate(values.departDate || '')) {
-        alert('Please fill in From, To and a departure date like 2026-11-22.');
+        alert('Please fill in From, To and pick a departure date.');
         return;
       }
       if (values.arriveDate && !isDate(values.arriveDate)) {
-        alert('Arrival date should look like 2026-11-22.');
+        alert('Please pick a valid arrival date.');
         return;
       }
     } else {
       if (!values.name || !isDate(values.checkIn || '') || !isDate(values.checkOut || '')) {
-        alert('Please fill in the hotel name and dates like 2026-11-22.');
+        alert('Please fill in the hotel name and pick check-in and check-out dates.');
         return;
       }
     }
 
+    const collection = formKind === 'transport' ? 'transport' : 'stays';
+
     try {
-      await firestoreFetch(
-        `${FIRESTORE_BASE}/${formKind === 'transport' ? 'transport' : 'stays'}`,
-        authToken,
-        {
+      if (editingId) {
+        // Editing: change only the form fields, keep "Added by" as it was
+        const mask = Object.keys(values)
+          .map(key => `updateMask.fieldPaths=${key}`)
+          .join('&');
+        await firestoreFetch(
+          `https://firestore.googleapis.com/v1/${editingId}?${mask}`,
+          authToken,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: toFields(values) }),
+          }
+        );
+      } else {
+        await firestoreFetch(`${FIRESTORE_BASE}/${collection}`, authToken, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -157,9 +196,9 @@ export default function BookingsScreen({ authToken, profile }) {
               addedByCharacter: profile.character,
             }),
           }),
-        }
-      );
-      setFormKind(null);
+        });
+      }
+      closeForm();
       await loadAll();
     } catch (error) {
       console.error('Error saving booking:', error);
@@ -172,6 +211,7 @@ export default function BookingsScreen({ authToken, profile }) {
       await firestoreFetch(`https://firestore.googleapis.com/v1/${id}`, authToken, {
         method: 'DELETE',
       });
+      if (id === editingId) closeForm();
       await loadAll();
     } catch (error) {
       console.error('Error deleting booking:', error);
@@ -187,10 +227,26 @@ export default function BookingsScreen({ authToken, profile }) {
       </View>
     ) : null;
 
+  const Buttons = ({ kind, item }) => (
+    <View style={{ flexDirection: 'row', marginTop: 8 }}>
+      <TouchableOpacity
+        style={[styles.editButton, { marginRight: 8 }]}
+        onPress={() => startEdit(kind, item)}
+      >
+        <Text style={styles.buttonText}>✏️ Edit</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.redButton} onPress={() => remove(item.id)}>
+        <Text style={styles.buttonText}>🗑️ Delete</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   const formFields = formKind === 'transport' ? TRANSPORT_FORM : STAY_FORM;
+  const kindLabel = formKind === 'transport' ? 'transport' : 'stay';
 
   return (
     <ScrollView
+      ref={scrollRef}
       style={styles.container}
       contentContainerStyle={{ padding: 15, paddingTop: 40 }}
       keyboardShouldPersistTaps="handled"
@@ -199,9 +255,9 @@ export default function BookingsScreen({ authToken, profile }) {
       <Text style={[styles.hint, { textAlign: 'center' }]}>Trip: {TRIP_LABEL}</Text>
 
       {formKind ? (
-        <View style={styles.card}>
-          <Text style={styles.section}>
-            {formKind === 'transport' ? 'New transport' : 'New stay'}
+        <View style={[styles.card, editingId && { borderWidth: 1, borderColor: colors.highlight }]}>
+          <Text style={[styles.section, editingId && { color: colors.highlight }]}>
+            {editingId ? `✏️ Edit ${kindLabel}` : `New ${kindLabel}`}
           </Text>
 
           {formKind === 'transport' && (
@@ -220,11 +276,11 @@ export default function BookingsScreen({ authToken, profile }) {
             </View>
           )}
 
-                   {formFields.map(([key, placeholder]) =>
+          {formFields.map(([key, placeholder]) =>
             DATE_KEYS.includes(key) ? (
               <View key={key} style={{ marginBottom: 8 }}>
                 <Text style={styles.hint}>
-                  {placeholder.split(' (')[0]}
+                  {placeholder}
                   {values[key] ? `: ${values[key]}` : ''}
                 </Text>
                 <ScrollView
@@ -232,10 +288,14 @@ export default function BookingsScreen({ authToken, profile }) {
                   showsHorizontalScrollIndicator={false}
                   style={{ marginTop: 6 }}
                 >
-                  {DAYS.map(d => (
+                  {PICK_DAYS.map(d => (
                     <TouchableOpacity
                       key={d.iso}
-                      style={[styles.chip, values[key] === d.iso && styles.chipOn]}
+                      style={[
+                        styles.chip,
+                        d.inTrip && styles.chipTrip,
+                        values[key] === d.iso && styles.chipOn,
+                      ]}
                       onPress={() => setValue(key, values[key] === d.iso ? '' : d.iso)}
                     >
                       <Text style={styles.chipText}>{d.short}</Text>
@@ -256,14 +316,16 @@ export default function BookingsScreen({ authToken, profile }) {
             )
           )}
 
-          <View style={{ flexDirection: 'row' }}>
+          <Text style={styles.hint}>Dates with a blue edge are your trip days.</Text>
+
+          <View style={{ flexDirection: 'row', marginTop: 8 }}>
             <TouchableOpacity
               style={[styles.greenButton, { flex: 1, marginRight: 8 }]}
               onPress={save}
             >
-              <Text style={styles.buttonText}>Save</Text>
+              <Text style={styles.buttonText}>{editingId ? 'Save Changes' : 'Save'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.redButton} onPress={() => setFormKind(null)}>
+            <TouchableOpacity style={styles.redButton} onPress={closeForm}>
               <Text style={styles.buttonText}>Cancel</Text>
             </TouchableOpacity>
           </View>
@@ -309,12 +371,7 @@ export default function BookingsScreen({ authToken, profile }) {
           ) : null}
           {t.notes ? <Text style={styles.note}>📝 {t.notes}</Text> : null}
           <AddedBy item={t} />
-          <TouchableOpacity
-            style={[styles.redButton, { alignSelf: 'flex-start', marginTop: 8 }]}
-            onPress={() => remove(t.id)}
-          >
-            <Text style={styles.buttonText}>🗑️ Delete</Text>
-          </TouchableOpacity>
+          <Buttons kind="transport" item={t} />
         </View>
       ))}
 
@@ -332,12 +389,7 @@ export default function BookingsScreen({ authToken, profile }) {
           ) : null}
           {h.notes ? <Text style={styles.note}>📝 {h.notes}</Text> : null}
           <AddedBy item={h} />
-          <TouchableOpacity
-            style={[styles.redButton, { alignSelf: 'flex-start', marginTop: 8 }]}
-            onPress={() => remove(h.id)}
-          >
-            <Text style={styles.buttonText}>🗑️ Delete</Text>
-          </TouchableOpacity>
+          <Buttons kind="stay" item={h} />
         </View>
       ))}
 
@@ -358,11 +410,13 @@ const styles = StyleSheet.create({
   byRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 },
   chip: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 6, marginBottom: 6, borderWidth: 1, borderColor: colors.input },
+  chipTrip: { borderColor: '#2f5d8f' },
   chipOn: { borderColor: colors.primary, backgroundColor: '#1f3a5f' },
   chipText: { color: colors.text, fontSize: 13 },
   input: { backgroundColor: colors.input, color: colors.text, padding: 12, borderRadius: 8, fontSize: 14, marginBottom: 8 },
   blueButton: { backgroundColor: colors.primary, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, alignItems: 'center' },
   greenButton: { backgroundColor: colors.success, padding: 12, borderRadius: 8, alignItems: 'center' },
   redButton: { backgroundColor: colors.danger, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' },
+  editButton: { backgroundColor: colors.warning, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' },
   buttonText: { color: colors.text, fontWeight: 'bold', fontSize: 14 },
 });
