@@ -417,6 +417,12 @@ export default function SpotsScreen({ authToken, profile }) {
         {selectedPlace && (
           <View style={styles.saveCard}>
             <Text style={styles.selectedTitle}>📍 Add: {selectedPlace.name}</Text>
+                        <TouchableOpacity
+              style={styles.checkBtn}
+              onPress={() => openInGoogleMaps(selectedPlace.lat, selectedPlace.lng, selectedPlace.name)}
+            >
+              <Text style={styles.actionBtnText}>🔎 Check on Google Maps</Text>
+            </TouchableOpacity>
               <CategoryPicker value={placeCategory} onChange={setPlaceCategory} />
             <TextInput
               style={[styles.input, styles.noteInput]}
@@ -659,4 +665,5 @@ const styles = StyleSheet.create({
   fitBtn: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6 },
   plannedText: { color: colors.success, fontSize: 12, marginTop: 6 },
   unplannedText: { color: colors.textDim, fontSize: 12, marginTop: 6 },
+    checkBtn: { backgroundColor: colors.googleBlue, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, alignSelf: 'flex-start', marginBottom: 8 },
 });
