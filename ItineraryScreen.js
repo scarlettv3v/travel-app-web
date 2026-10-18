@@ -58,6 +58,8 @@ export default function ItineraryScreen({ authToken, profile }) {
           address: str(doc, 'address'),
           checkIn: str(doc, 'checkIn'),
           checkOut: str(doc, 'checkOut'),
+                    checkInTime: str(doc, 'checkInTime'),
+          checkOutTime: str(doc, 'checkOutTime'),
           confirmation: str(doc, 'confirmation'),
           addedByCharacter: str(doc, 'addedByCharacter'),
         }))
@@ -389,7 +391,9 @@ export default function ItineraryScreen({ authToken, profile }) {
         {checkingOut.length > 0 && <Text style={styles.section}>Check-out today</Text>}
         {checkingOut.map(s => (
           <View key={s.id + 'o'} style={styles.card}>
-            <Text style={styles.cardTitle}>🧳 Check out of {s.name}</Text>
+                       <Text style={styles.cardTitle}>
+              🧳 Check out of {s.name}{s.checkOutTime ? ` by ${s.checkOutTime}` : ''}
+            </Text>
           </View>
         ))}
 
@@ -401,7 +405,11 @@ export default function ItineraryScreen({ authToken, profile }) {
               {s.addedByCharacter ? <Avatar characterId={s.addedByCharacter} size={24} /> : null}
             </View>
             {s.address ? <Text style={styles.hint}>{s.address}</Text> : null}
-            {s.checkIn === day.iso ? <Text style={styles.hint}>Check-in today</Text> : null}
+                      {s.checkIn === day.iso ? (
+              <Text style={styles.hint}>
+                Check-in today{s.checkInTime ? ` from ${s.checkInTime}` : ''}
+              </Text>
+            ) : null}
             {s.confirmation ? <Text style={styles.hint}>Confirmation: {s.confirmation}</Text> : null}
           </View>
         ))}

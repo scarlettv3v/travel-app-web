@@ -10,7 +10,8 @@ import {
 import { colors } from './theme';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
-import { TRIP_LABEL, PICK_DAYS } from './trip';
+import { TRIP_LABEL } from './trip';
+import DatePicker, { formatDate } from './DatePicker';
 
 const TYPES = [
   { id: 'flight', emoji: '✈️', label: 'Flight' },
@@ -37,12 +38,15 @@ const STAY_FORM = [
   ['name', 'Hotel name'],
   ['address', 'Address'],
   ['checkIn', 'Check-in date'],
+  ['checkInTime', 'Check-in time (e.g. 15:00)'],
   ['checkOut', 'Check-out date'],
+  ['checkOutTime', 'Check-out time (e.g. 11:00)'],
   ['confirmation', 'Confirmation code'],
   ['notes', 'Notes (breakfast, parking...)'],
 ];
 
 const DATE_KEYS = ['departDate', 'arriveDate', 'checkIn', 'checkOut'];
+const MIN_FROM = { arriveDate: 'departDate', checkOut: 'checkIn' };
 const isDate = text => /^\d{4}-\d{2}-\d{2}$/.test(text);
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
 
@@ -61,6 +65,7 @@ export default function BookingsScreen({ authToken, profile }) {
   const [formKind, setFormKind] = useState(null); // 'transport' | 'stay' | null
   const [editingId, setEditingId] = useState(null);
   const [values, setValues] = useState({});
+    const [pickerKey, setPickerKey] = useState(null);
 
   const loadAll = useCallback(async () => {
     try {
@@ -100,7 +105,9 @@ export default function BookingsScreen({ authToken, profile }) {
         name: str(doc, 'name'),
         address: str(doc, 'address'),
         checkIn: str(doc, 'checkIn'),
-        checkOut: str(doc, 'checkOut'),
+                checkOut: str(doc, 'checkOut'),
+        checkInTime: str(doc, 'checkInTime'),
+        checkOutTime: str(doc, 'checkOutTime'),
         confirmation: str(doc, 'confirmation'),
         notes: str(doc, 'notes'),
         addedByName: str(doc, 'addedByName'),
@@ -276,33 +283,18 @@ export default function BookingsScreen({ authToken, profile }) {
             </View>
           )}
 
-          {formFields.map(([key, placeholder]) =>
+                    {formFields.map(([key, placeholder]) =>
             DATE_KEYS.includes(key) ? (
-              <View key={key} style={{ marginBottom: 8 }}>
-                <Text style={styles.hint}>
-                  {placeholder}
-                  {values[key] ? `: ${values[key]}` : ''}
+              <TouchableOpacity
+                key={key}
+                style={styles.dateField}
+                onPress={() => setPickerKey(key)}
+              >
+                <Text style={styles.dateLabel}>{placeholder}</Text>
+                <Text style={values[key] ? styles.dateValue : styles.datePlaceholder}>
+                  📅 {values[key] ? formatDate(values[key]) : 'Tap to pick a date'}
                 </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={{ marginTop: 6 }}
-                >
-                  {PICK_DAYS.map(d => (
-                    <TouchableOpacity
-                      key={d.iso}
-                      style={[
-                        styles.chip,
-                        d.inTrip && styles.chipTrip,
-                        values[key] === d.iso && styles.chipOn,
-                      ]}
-                      onPress={() => setValue(key, values[key] === d.iso ? '' : d.iso)}
-                    >
-                      <Text style={styles.chipText}>{d.short}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
+              </TouchableOpacity>
             ) : (
               <TextInput
                 key={key}
@@ -380,8 +372,8 @@ export default function BookingsScreen({ authToken, profile }) {
       {stays.map(h => (
         <View key={h.id} style={styles.card}>
           <Text style={styles.cardTitle}>🏨 {h.name}</Text>
-          <Text style={styles.line}>
-            {h.checkIn} → {h.checkOut}
+                   <Text style={styles.line}>
+            {h.checkIn} {h.checkInTime} → {h.checkOut} {h.checkOutTime}
           </Text>
           {h.address ? <Text style={styles.hint}>{h.address}</Text> : null}
           {h.confirmation ? (
@@ -392,7 +384,21 @@ export default function BookingsScreen({ authToken, profile }) {
           <Buttons kind="stay" item={h} />
         </View>
       ))}
-
+      <DatePicker
+        visible={!!pickerKey}
+        title={pickerKey ? (formKind === 'transport' ? TRANSPORT_FORM : STAY_FORM).find(f => f[0] === pickerKey)?.[1] : ''}
+        value={pickerKey ? values[pickerKey] : ''}
+        minDate={pickerKey && MIN_FROM[pickerKey] ? values[MIN_FROM[pickerKey]] : ''}
+        onPick={iso => {
+          setValue(pickerKey, iso);
+          setPickerKey(null);
+        }}
+        onClear={() => {
+          setValue(pickerKey, '');
+          setPickerKey(null);
+        }}
+        onClose={() => setPickerKey(null)}
+      />
       <View style={{ height: 30 }} />
     </ScrollView>
   );
@@ -419,4 +425,8 @@ const styles = StyleSheet.create({
   redButton: { backgroundColor: colors.danger, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' },
   editButton: { backgroundColor: colors.warning, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' },
   buttonText: { color: colors.text, fontWeight: 'bold', fontSize: 14 },
+  dateField: { backgroundColor: colors.input, padding: 12, borderRadius: 8, marginBottom: 8 },
+  dateLabel: { color: colors.textMuted, fontSize: 12, marginBottom: 4 },
+  dateValue: { color: colors.text, fontSize: 14 },
+  datePlaceholder: { color: colors.textDim, fontSize: 14 },
 });
