@@ -67,6 +67,7 @@ export default function SpotsScreen({ authToken, profile }) {
   const [placeCategory, setPlaceCategory] = useState('spot');
   const [editCategory, setEditCategory] = useState('spot');
     const [planningSpot, setPlanningSpot] = useState(null);
+      const [filter, setFilter] = useState('all');
   const loadSpots = useCallback(async () => {
     try {
       const response = await firestoreFetch(DB_URL, authToken);
@@ -248,7 +249,27 @@ export default function SpotsScreen({ authToken, profile }) {
       alert('Error saving spot!');
     }
   };
+  const visibleSpots =
+    filter === 'all'
+      ? placesList
+      : placesList.filter(p => (p.category || 'spot') === filter);
 
+  const handleFitAll = () => {
+    const pts = visibleSpots.filter(s => s.lat && s.lng);
+    if (!pts.length) return;
+    const lats = pts.map(s => s.lat);
+    const lngs = pts.map(s => s.lng);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    setRegion({
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: Math.max((maxLat - minLat) * 1.4, 0.05),
+      longitudeDelta: Math.max((maxLng - minLng) * 1.4, 0.05),
+    });
+  };
   return (
     <View style={styles.container}>
       <Text style={styles.title}>🇳🇿 NZ Route Planner</Text>
@@ -301,7 +322,7 @@ export default function SpotsScreen({ authToken, profile }) {
             region={region}
             onRegionChangeComplete={setRegion}
           >
-            {placesList.map((spot, index) =>
+            {visibleSpots.map((spot, index) =>
               spot.lat && spot.lng ? (
                 <Marker
                   key={index}
@@ -429,10 +450,37 @@ export default function SpotsScreen({ authToken, profile }) {
             </ScrollView>
           </View>
         </Modal>
-                <Text style={styles.subtitle}>Saved Spots ({placesList.length})</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, marginBottom: 6 }}>
+          {[{ id: 'all', emoji: '🗂️', label: 'All' }, ...CATEGORIES].map(c => {
+            const count =
+              c.id === 'all'
+                ? placesList.length
+                : placesList.filter(p => (p.category || 'spot') === c.id).length;
+            return (
+              <TouchableOpacity
+                key={c.id}
+                onPress={() => setFilter(c.id)}
+                style={[styles.catChip, filter === c.id && styles.catChipOn]}
+              >
+                <Text style={styles.catText}>
+                  {c.emoji} {c.label} ({count})
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        <View style={styles.subtitleRow}>
+          <Text style={[styles.subtitle, { marginBottom: 0 }]}>
+            Showing {visibleSpots.length} of {placesList.length}
+          </Text>
+          <TouchableOpacity style={styles.fitBtn} onPress={handleFitAll}>
+            <Text style={styles.actionBtnText}>🔍 Show all on map</Text>
+          </TouchableOpacity>
+        </View>
 
         <ScrollView style={styles.listContainer}>
-          {placesList.map((place, index) => (
+          {visibleSpots.map((place, index) => (
             <TouchableOpacity
               key={index}
               style={styles.placeCard}
@@ -538,4 +586,6 @@ const styles = StyleSheet.create({
   catText: { color: colors.text, fontSize: 13 },
     planBtn: { backgroundColor: colors.primary, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, alignSelf: 'flex-start', marginTop: 10 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)' },
+    subtitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  fitBtn: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6 },
 });
