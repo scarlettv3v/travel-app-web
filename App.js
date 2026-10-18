@@ -10,6 +10,7 @@ import {
 import {
   onIdTokenChanged,
   signInWithEmailAndPassword,
+  sendPasswordResetEmail,
 } from 'firebase/auth';
 
 import { auth } from './firebase';
@@ -23,6 +24,7 @@ import Avatar from './Avatar';
 import ProfileScreen from './ProfileScreen';
 import ProfileSetupScreen from './ProfileSetupScreen';
 
+
 export default function App() {
   const [authToken, setAuthToken] = useState(null);
   const [uid, setUid] = useState(null);
@@ -35,6 +37,7 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState('');
+    const [loginInfo, setLoginInfo] = useState('');
 
   const handleLogin = async () => {
     if (!loginEmail.trim() || !loginPassword) {
@@ -54,6 +57,23 @@ export default function App() {
     } finally {
       setLoginBusy(false);
     }
+  };
+
+    const handleForgot = async () => {
+    if (!loginEmail.trim()) {
+      setLoginInfo('');
+      setLoginError('Type your email above first, then tap "Forgot password?".');
+      return;
+    }
+
+    setLoginError('');
+    try {
+      await sendPasswordResetEmail(auth, loginEmail.trim());
+    } catch (error) {
+      console.error('Password reset failed:', error);
+    }
+    // Same message either way, so strangers can't check which emails have accounts
+    setLoginInfo('If that email has an account, a reset link is on its way. Check your spam folder too.');
   };
 
   // Keeps the login token and user id up to date
@@ -176,7 +196,12 @@ export default function App() {
           </Text>
         </TouchableOpacity>
 
-        {!!loginError && <Text style={styles.loginError}>{loginError}</Text>}
+              {!!loginError && <Text style={styles.loginError}>{loginError}</Text>}
+        {!!loginInfo && <Text style={styles.loginInfo}>{loginInfo}</Text>}
+
+        <TouchableOpacity onPress={handleForgot} style={{ marginTop: 18 }}>
+          <Text style={styles.forgotText}>Forgot password?</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -285,6 +310,8 @@ const styles = StyleSheet.create({
     right: 12,
     zIndex: 20,
   },
+  loginInfo: { color: colors.success, marginTop: 14, textAlign: 'center' },
+  forgotText: { color: colors.primary, textAlign: 'center', fontSize: 14 },
 });
 
 const tabs = StyleSheet.create({
