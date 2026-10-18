@@ -10,7 +10,8 @@ import {
 import { colors } from './theme';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
-import { TRIP_LABEL } from './trip';
+import { TRIP_LABEL, DAYS } from './trip';
+
 
 const TYPES = [
   { id: 'flight', emoji: '✈️', label: 'Flight' },
@@ -43,6 +44,7 @@ const STAY_FORM = [
 ];
 
 const isDate = text => /^\d{4}-\d{2}-\d{2}$/.test(text);
+const DATE_KEYS = ['departDate', 'arriveDate', 'checkIn', 'checkOut'];
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
 
 function toFields(values) {
@@ -218,17 +220,41 @@ export default function BookingsScreen({ authToken, profile }) {
             </View>
           )}
 
-          {formFields.map(([key, placeholder]) => (
-            <TextInput
-              key={key}
-              style={styles.input}
-              placeholder={placeholder}
-              placeholderTextColor={colors.textDim}
-              value={values[key] || ''}
-              onChangeText={text => setValue(key, text)}
-              autoCapitalize={key === 'confirmation' ? 'characters' : 'sentences'}
-            />
-          ))}
+                   {formFields.map(([key, placeholder]) =>
+            DATE_KEYS.includes(key) ? (
+              <View key={key} style={{ marginBottom: 8 }}>
+                <Text style={styles.hint}>
+                  {placeholder.split(' (')[0]}
+                  {values[key] ? `: ${values[key]}` : ''}
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ marginTop: 6 }}
+                >
+                  {DAYS.map(d => (
+                    <TouchableOpacity
+                      key={d.iso}
+                      style={[styles.chip, values[key] === d.iso && styles.chipOn]}
+                      onPress={() => setValue(key, values[key] === d.iso ? '' : d.iso)}
+                    >
+                      <Text style={styles.chipText}>{d.short}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : (
+              <TextInput
+                key={key}
+                style={styles.input}
+                placeholder={placeholder}
+                placeholderTextColor={colors.textDim}
+                value={values[key] || ''}
+                onChangeText={text => setValue(key, text)}
+                autoCapitalize={key === 'confirmation' ? 'characters' : 'sentences'}
+              />
+            )
+          )}
 
           <View style={{ flexDirection: 'row' }}>
             <TouchableOpacity
