@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Text, View, StyleSheet, TouchableOpacity, TextInput, ScrollView } from 'react-native';
 import { colors } from './theme';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
-import { DAYS } from './trip';
+import { useTrip } from './trip';
 import Avatar from './Avatar';
 
 export default function AddToDayCard({ spot, authToken, profile, onClose }) {
+  const { days: DAYS } = useTrip();
   const [date, setDate] = useState(DAYS[0].iso);
   const [time, setTime] = useState('');
   const [status, setStatus] = useState('planned');

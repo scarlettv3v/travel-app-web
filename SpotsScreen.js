@@ -18,7 +18,7 @@ import AddToDayCard from './AddToDayCard';
 import { openInGoogleMaps } from './maps';
 import { CATEGORIES, getCategory } from './categories';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
-import { DAYS } from './trip';
+import { useTrip } from './trip';
 
 let MapView, Marker;
 if (Platform.OS !== 'web') {
@@ -53,6 +53,7 @@ function CategoryPicker({ value, onChange }) {
   );
 }
 export default function SpotsScreen({ authToken, profile }) {
+  const { days: DAYS } = useTrip();
   const [region, setRegion] = useState(DEFAULT_REGION);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);

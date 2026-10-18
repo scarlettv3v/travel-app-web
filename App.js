@@ -23,6 +23,7 @@ import ItineraryScreen from './ItineraryScreen';
 import Avatar from './Avatar';
 import ProfileScreen from './ProfileScreen';
 import ProfileSetupScreen from './ProfileSetupScreen';
+import { TripProvider } from './trip';
 
 
 export default function App() {
@@ -225,6 +226,7 @@ export default function App() {
   }
 
   return (
+           <TripProvider authToken={authToken}>
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ flex: 1 }}>
         {tab === 'spots' ? (
@@ -262,6 +264,7 @@ export default function App() {
         </TouchableOpacity>
       </View>
     </View>
+           </TripProvider>
   );
 }
 

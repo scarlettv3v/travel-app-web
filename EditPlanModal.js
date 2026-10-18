@@ -9,9 +9,10 @@ import {
   ScrollView,
 } from 'react-native';
 import { colors } from './theme';
-import { DAYS } from './trip';
+import { useTrip } from './trip';
 
 export default function EditPlanModal({ plan, onSave, onClose }) {
+    const { days: DAYS } = useTrip();
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
 

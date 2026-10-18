@@ -3,7 +3,8 @@ import { Text, View, StyleSheet, TouchableOpacity, ScrollView } from 'react-nati
 import { colors } from './theme';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
-import { DAYS } from './trip';
+  import { useTrip } from './trip';
+  import TripDates from './TripDates';
 import { getCategory } from './categories';
 import DayMap from './DayMap';
 import { openInGoogleMaps } from './maps';
@@ -20,6 +21,7 @@ const num = (doc, key) => {
 const TRANSPORT_EMOJI = { flight: '✈️', car: '🚗', train: '🚆', ferry: '⛴️' };
 
 export default function ItineraryScreen({ authToken, profile }) {
+  const { days: DAYS } = useTrip();
   const [selected, setSelected] = useState(0);
   const [transport, setTransport] = useState([]);
   const [stays, setStays] = useState([]);
@@ -151,7 +153,7 @@ export default function ItineraryScreen({ authToken, profile }) {
     }
   };
 
-  const day = DAYS[selected];
+    const day = DAYS[Math.min(selected, DAYS.length - 1)];
 
   const departing = transport
     .filter(t => t.departDate === day.iso)
@@ -267,7 +269,7 @@ export default function ItineraryScreen({ authToken, profile }) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>📅 Itinerary</Text>
-
+        <TripDates />
       <View style={{ height: 70 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
           {DAYS.map((d, index) => (

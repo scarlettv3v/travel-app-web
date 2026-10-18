@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Text, View, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { colors } from './theme';
-import { TRIP_START, TRIP_END } from './trip';
+import { useTrip } from './trip';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -17,6 +17,7 @@ export function formatDate(isoStr) {
 }
 
 export default function DatePicker({ visible, title, value, minDate, onPick, onClear, onClose }) {
+      const { start: TRIP_START, end: TRIP_END } = useTrip();
   const seed = value || minDate || TRIP_START;
   const [year, setYear] = useState(Number(seed.split('-')[0]));
   const [month, setMonth] = useState(Number(seed.split('-')[1]) - 1);
