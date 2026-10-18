@@ -10,7 +10,7 @@ import {
 import { colors } from './theme';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
-import { TRIP_LABEL } from './trip';
+import { useTrip } from './trip';
 import DatePicker, { formatDate } from './DatePicker';
 
 const TYPES = [
@@ -59,6 +59,7 @@ function toFields(values) {
 }
 
 export default function BookingsScreen({ authToken, profile }) {
+  const { label: TRIP_LABEL, start: TRIP_START, end: TRIP_END } = useTrip();
   const scrollRef = useRef(null);
   const [transport, setTransport] = useState([]);
   const [stays, setStays] = useState([]);
@@ -248,6 +249,12 @@ export default function BookingsScreen({ authToken, profile }) {
     </View>
   );
 
+    const outside = d => !!d && (d < TRIP_START || d > TRIP_END);
+
+  const outsideCount =
+    transport.filter(t => outside(t.departDate)).length +
+    stays.filter(s => outside(s.checkIn) || outside(s.checkOut)).length;
+
   const formFields = formKind === 'transport' ? TRANSPORT_FORM : STAY_FORM;
   const kindLabel = formKind === 'transport' ? 'transport' : 'stay';
 
@@ -259,6 +266,13 @@ export default function BookingsScreen({ authToken, profile }) {
       keyboardShouldPersistTaps="handled"
     >
       <Text style={styles.title}>🧳 Bookings</Text>
+            {outsideCount > 0 ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>
+            ⚠️ {outsideCount} booking{outsideCount > 1 ? 's are' : ' is'} outside your trip dates. They won't show on the Plan tab.
+          </Text>
+        </View>
+      ) : null}
       <Text style={[styles.hint, { textAlign: 'center' }]}>Trip: {TRIP_LABEL}</Text>
 
       {formKind ? (
@@ -353,6 +367,9 @@ export default function BookingsScreen({ authToken, profile }) {
           <Text style={styles.hint}>
             Departs {t.departDate} {t.departTime}
           </Text>
+                    {outside(t.departDate) ? (
+            <Text style={styles.warn}>⚠️ Departs outside your trip dates</Text>
+          ) : null}
           {t.arriveDate || t.arriveTime ? (
             <Text style={styles.hint}>
               Arrives {t.arriveDate} {t.arriveTime}
@@ -375,6 +392,9 @@ export default function BookingsScreen({ authToken, profile }) {
                    <Text style={styles.line}>
             {h.checkIn} {h.checkInTime} → {h.checkOut} {h.checkOutTime}
           </Text>
+                    {outside(h.checkIn) || outside(h.checkOut) ? (
+            <Text style={styles.warn}>⚠️ Dates fall outside your trip</Text>
+          ) : null}
           {h.address ? <Text style={styles.hint}>{h.address}</Text> : null}
           {h.confirmation ? (
             <Text style={styles.hint}>Confirmation: {h.confirmation}</Text>
@@ -429,4 +449,7 @@ const styles = StyleSheet.create({
   dateLabel: { color: colors.textMuted, fontSize: 12, marginBottom: 4 },
   dateValue: { color: colors.text, fontSize: 14 },
   datePlaceholder: { color: colors.textDim, fontSize: 14 },
+    banner: { backgroundColor: '#3a3320', borderWidth: 1, borderColor: colors.highlight, borderRadius: 8, padding: 10, marginTop: 8 },
+  bannerText: { color: colors.highlight, fontSize: 13 },
+  warn: { color: colors.highlight, fontSize: 12, marginTop: 4 },
 });
