@@ -9,6 +9,16 @@ export const MAX_DAYS = 60;
 export const DEFAULT_START = '2026-11-21';
 export const DEFAULT_END = '2026-12-02';
 
+// Used until the trip is saved for the first time. Change them from Home > Edit trip.
+const DEFAULTS = {
+  start: DEFAULT_START,
+  end: DEFAULT_END,
+  name: 'Our NZ adventure',
+  destination: 'Queenstown, Otago, New Zealand',
+  latitude: -45.0312,
+  longitude: 168.6626,
+};
+
 const toUtc = iso => {
   const [y, m, d] = iso.split('-').map(Number);
   return Date.UTC(y, m - 1, d);
@@ -44,29 +54,40 @@ export function formatRange(start, end) {
 }
 
 const TripContext = createContext({
-  start: DEFAULT_START,
-  end: DEFAULT_END,
-  label: formatRange(DEFAULT_START, DEFAULT_END),
-  days: buildDays(DEFAULT_START, DEFAULT_END),
+  ...DEFAULTS,
+  label: formatRange(DEFAULTS.start, DEFAULTS.end),
+  days: buildDays(DEFAULTS.start, DEFAULTS.end),
   saveTrip: async () => false,
 });
 
+const num = field =>
+  field ? Number(field.doubleValue ?? field.integerValue) : null;
+
 export function TripProvider({ authToken, children }) {
-  const [range, setRange] = useState({ start: DEFAULT_START, end: DEFAULT_END });
+  const [trip, setTrip] = useState(DEFAULTS);
 
   const load = useCallback(async () => {
     try {
       const res = await firestoreFetch(`${FIRESTORE_BASE}/settings/trip`, authToken);
       const doc = await res.json();
-      const s = doc.fields?.start?.stringValue;
-      const e = doc.fields?.end?.stringValue;
+      const f = doc.fields || {};
+      const s = f.start?.stringValue;
+      const e = f.end?.stringValue;
       if (s && e) {
-        setRange(prev => (prev.start === s && prev.end === e ? prev : { start: s, end: e }));
+        const next = {
+          start: s,
+          end: e,
+          name: f.name?.stringValue || DEFAULTS.name,
+          destination: f.destination?.stringValue || DEFAULTS.destination,
+          latitude: num(f.latitude) ?? DEFAULTS.latitude,
+          longitude: num(f.longitude) ?? DEFAULTS.longitude,
+        };
+        setTrip(prev => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
       }
     } catch (error) {
-      // 404 just means the dates were never set, so the defaults are used
+      // 404 just means the trip was never saved, so the defaults are used
       if (!String(error.message).includes('(404)')) {
-        console.error('Error loading trip dates:', error);
+        console.error('Error loading trip:', error);
       }
     }
   }, [authToken]);
@@ -78,23 +99,35 @@ export function TripProvider({ authToken, children }) {
     return () => clearInterval(timer);
   }, [authToken, load]);
 
+  // saveTrip(start, end) still works as before.
+  // saveTrip(start, end, { name, destination, latitude, longitude }) saves the extras too.
   const saveTrip = useCallback(
-    async (start, end) => {
+    async (start, end, extra = {}) => {
       try {
-        await firestoreFetch(`${FIRESTORE_BASE}/settings/trip`, authToken, {
+        const fields = {
+          start: { stringValue: start },
+          end: { stringValue: end },
+        };
+        Object.entries(extra).forEach(([key, value]) => {
+          fields[key] =
+            typeof value === 'number'
+              ? { doubleValue: value }
+              : { stringValue: String(value) };
+        });
+        // The mask means only these fields change, nothing else is wiped
+        const mask = Object.keys(fields)
+          .map(key => `updateMask.fieldPaths=${key}`)
+          .join('&');
+
+        await firestoreFetch(`${FIRESTORE_BASE}/settings/trip?${mask}`, authToken, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fields: {
-              start: { stringValue: start },
-              end: { stringValue: end },
-            },
-          }),
+          body: JSON.stringify({ fields }),
         });
-        setRange({ start, end });
+        setTrip(prev => ({ ...prev, start, end, ...extra }));
         return true;
       } catch (error) {
-        console.error('Error saving trip dates:', error);
+        console.error('Error saving trip:', error);
         return false;
       }
     },
@@ -103,13 +136,12 @@ export function TripProvider({ authToken, children }) {
 
   const value = useMemo(
     () => ({
-      start: range.start,
-      end: range.end,
-      label: formatRange(range.start, range.end),
-      days: buildDays(range.start, range.end),
+      ...trip,
+      label: formatRange(trip.start, trip.end),
+      days: buildDays(trip.start, trip.end),
       saveTrip,
     }),
-    [range, saveTrip]
+    [trip, saveTrip]
   );
 
   return <TripContext.Provider value={value}>{children}</TripContext.Provider>;

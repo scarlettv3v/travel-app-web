@@ -24,6 +24,7 @@ import Avatar from './Avatar';
 import ProfileScreen from './ProfileScreen';
 import ProfileSetupScreen from './ProfileSetupScreen';
 import { TripProvider } from './trip';
+import HomeScreen from './HomeScreen';
 
 
 export default function App() {
@@ -32,7 +33,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [profile, setProfile] = useState(null);
   const [profileReady, setProfileReady] = useState(false);
-  const [tab, setTab] = useState('spots');
+  const [tab, setTab] = useState('home');
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -229,7 +230,14 @@ export default function App() {
            <TripProvider authToken={authToken}>
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <View style={{ flex: 1 }}>
-        {tab === 'spots' ? (
+         {tab === 'home' ? (
+        <HomeScreen
+          authToken={authToken}
+          profile={profile}
+          uid={uid}
+          onOpenPlan={() => setTab('itinerary')}
+        />
+         ) : tab === 'spots' ? (
           <SpotsScreen authToken={authToken} profile={profile} />
         ) : tab === 'bookings' ? (
           <BookingsScreen authToken={authToken} profile={profile} />
@@ -247,22 +255,19 @@ export default function App() {
       </View>
 
       <View style={tabs.bar}>
-        <TouchableOpacity style={tabs.btn} onPress={() => setTab('spots')}>
-          <Text style={[tabs.text, tab === 'spots' && tabs.active]}>🗺️ Spots</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={tabs.btn} onPress={() => setTab('bookings')}>
-          <Text style={[tabs.text, tab === 'bookings' && tabs.active]}>🧳 Bookings</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={tabs.btn} onPress={() => setTab('itinerary')}>
-          <Text style={[tabs.text, tab === 'itinerary' && tabs.active]}>📅 Plan</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={tabs.btn} onPress={() => setTab('expenses')}>
-          <Text style={[tabs.text, tab === 'expenses' && tabs.active]}>💰 Expenses</Text>
-        </TouchableOpacity>
-      </View>
+  {[
+    ['home', '🏠', 'Home'],
+    ['itinerary', '📅', 'Plan'],
+    ['spots', '🗺️', 'Spots'],
+    ['bookings', '🧳', 'Bookings'],
+    ['expenses', '💰', 'Expenses'],
+  ].map(([id, icon, text]) => (
+    <TouchableOpacity key={id} style={tabs.btn} onPress={() => setTab(id)}>
+      <Text style={tabs.icon}>{icon}</Text>
+      <Text style={[tabs.text, tab === id && tabs.active]}>{text}</Text>
+    </TouchableOpacity>
+  ))}
+</View>
     </View>
            </TripProvider>
   );
@@ -325,7 +330,7 @@ const tabs = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  btn: { flex: 1, paddingVertical: 14, paddingHorizontal: 4, alignItems: 'center' },
-  text: { color: colors.textDim, fontSize: 12, fontWeight: 'bold' },
-  active: { color: colors.primary },
+  btn: { flex: 1, paddingVertical: 10, paddingHorizontal: 2, alignItems: 'center' },
+icon: { fontSize: 18, marginBottom: 2 },
+text: { color: colors.textDim, fontSize: 10, fontWeight: 'bold' },
 });
