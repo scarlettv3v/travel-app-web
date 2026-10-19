@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Text, View, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
-import { colors } from './theme';
+import { Text, View, StyleSheet, TouchableOpacity, TextInput, ScrollView } from 'react-native';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
-import { CHARACTERS } from './characters';
+import AvatarEditor from './AvatarEditor';
+import { defaultLook, encodeLook } from './Avatar';
+
+const INK = '#263a48';
 
 export default function ProfileSetupScreen({ authToken, uid, onSaved }) {
   const [name, setName] = useState('');
-  const [characterId, setCharacterId] = useState(CHARACTERS[0].id);
+  const [look, setLook] = useState(defaultLook());
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
@@ -16,6 +18,7 @@ export default function ProfileSetupScreen({ authToken, uid, onSaved }) {
     }
 
     setBusy(true);
+    const code = encodeLook(look);
     try {
       await firestoreFetch(`${FIRESTORE_BASE}/profiles/${uid}`, authToken, {
         method: 'PATCH',
@@ -23,11 +26,11 @@ export default function ProfileSetupScreen({ authToken, uid, onSaved }) {
         body: JSON.stringify({
           fields: {
             name: { stringValue: name.trim() },
-            character: { stringValue: characterId },
+            character: { stringValue: code },
           },
         }),
       });
-      onSaved({ name: name.trim(), character: characterId });
+      onSaved({ name: name.trim(), character: code });
     } catch (error) {
       console.error('Error saving profile:', error);
       alert('Could not save your profile.');
@@ -37,79 +40,54 @@ export default function ProfileSetupScreen({ authToken, uid, onSaved }) {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={{ padding: 24, paddingTop: 70, paddingBottom: 40 }}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={styles.title}>Who are you?</Text>
-      <Text style={styles.subtitle}>Pick your name and character</Text>
+      <Text style={styles.subtitle}>Add your name and build your look</Text>
 
       <TextInput
         style={styles.input}
         placeholder="Your name"
-        placeholderTextColor={colors.textDim}
+        placeholderTextColor="#8aa09a"
         value={name}
         onChangeText={setName}
+        maxLength={30}
       />
 
-      <View style={styles.grid}>
-        {CHARACTERS.map(c => (
-          <TouchableOpacity
-            key={c.id}
-            style={[
-              styles.avatar,
-              { backgroundColor: c.color + '33' },
-              characterId === c.id && { borderColor: c.color, borderWidth: 3 },
-            ]}
-            onPress={() => setCharacterId(c.id)}
-          >
-            <Text style={styles.emoji}>{c.emoji}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <AvatarEditor look={look} onChange={setLook} />
 
       <TouchableOpacity style={styles.button} onPress={save} disabled={busy}>
         <Text style={styles.buttonText}>{busy ? 'Saving...' : "Let's go!"}</Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-    justifyContent: 'center',
-    padding: 24,
-  },
-  title: { color: colors.text, fontSize: 28, fontWeight: 'bold', textAlign: 'center' },
-  subtitle: { color: colors.textMuted, textAlign: 'center', marginBottom: 24, marginTop: 6 },
+  screen: { flex: 1, backgroundColor: '#f3f8ed' },
+  title: { color: INK, fontSize: 28, fontWeight: '800', textAlign: 'center' },
+  subtitle: { color: '#526873', textAlign: 'center', marginBottom: 20, marginTop: 6 },
   input: {
-    backgroundColor: colors.input,
-    color: colors.text,
-    padding: 14,
-    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#b6cfc3',
+    borderRadius: 11,
+    padding: 12,
+    color: INK,
+    fontSize: 15,
     marginBottom: 20,
   },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    margin: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: 'transparent',
-  },
-  emoji: { fontSize: 36 },
   button: {
-    backgroundColor: colors.primary,
-    padding: 14,
-    borderRadius: 8,
+    backgroundColor: '#ffd388',
+    borderWidth: 2,
+    borderColor: INK,
+    borderRadius: 999,
+    paddingVertical: 14,
     alignItems: 'center',
+    marginTop: 24,
   },
-  buttonText: { color: colors.text, fontWeight: 'bold' },
+  buttonText: { color: INK, fontWeight: '800', fontSize: 16 },
 });

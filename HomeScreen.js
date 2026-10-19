@@ -4,12 +4,11 @@ import {
   View,
   StyleSheet,
   TouchableOpacity,
-  TextInput,
   ScrollView,
 } from 'react-native';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
-import { useTrip, dayCount, MAX_DAYS } from './trip';
+import { useTrip } from './trip';
 import DatePicker, { formatDate } from './DatePicker';
 
 // Home uses its own light palette from the design, the other tabs stay dark for now
@@ -27,7 +26,6 @@ const P = {
 };
 
 const COL = 92;
-const OUTFITS = ['#ff9289', '#8ecdc0', '#ffc773', '#a5b4fc', '#f9a8d4', '#86efac', '#fdba74', '#93c5fd', '#c4b5fd', '#fca5a5'];
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const short = iso => {
   const [, m, d] = iso.split('-').map(Number);
@@ -44,7 +42,7 @@ const toMin = t => {
 };
 
 export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
-  const { name, destination, latitude, longitude, start, end, label, days, saveTrip } = useTrip();
+  const { name, destination, latitude, longitude, start, end, label, days } = useTrip();
   const scrollRef = useRef(null);
 
   const [travelers, setTravelers] = useState([]);
@@ -53,13 +51,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
   const [now, setNow] = useState(Date.now());
   const [selected, setSelected] = useState(null);
 
-  const [editOpen, setEditOpen] = useState(false);
-  const [draft, setDraft] = useState(null);
-  const [picker, setPicker] = useState(null); // 'start' | 'end' | 'join'
-  const [q, setQ] = useState('');
-  const [results, setResults] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [msg, setMsg] = useState('');
+  const [picker, setPicker] = useState(null); // 'join'
 
   // ---------- people ----------
   const loadTravelers = useCallback(async () => {
@@ -72,7 +64,6 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
           name: doc.fields?.name?.stringValue || 'Traveler',
           character: doc.fields?.character?.stringValue || 'fox',
           join: doc.fields?.joinDate?.stringValue || '',
-          outfit: doc.fields?.outfit?.stringValue || '',
         }))
       );
     } catch (error) {
@@ -151,7 +142,6 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
 
   const me = travelers.find(t => t.uid === uid);
   const myJoin = me?.join || start;
-  const myOutfit = me?.outfit || '';
 
   // ---------- saving ----------
   const saveJoin = async iso => {
@@ -172,90 +162,6 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
     }
   };
 
-  const saveOutfit = async color => {
-    // show the new colour straight away, then save it
-    setTravelers(prev => prev.map(t => (t.uid === uid ? { ...t, outfit: color } : t)));
-    try {
-      await firestoreFetch(
-        `${FIRESTORE_BASE}/profiles/${uid}?updateMask.fieldPaths=outfit`,
-        authToken,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields: { outfit: { stringValue: color } } }),
-        }
-      );
-    } catch (error) {
-      console.error('Error saving outfit:', error);
-      alert('Could not save your outfit colour.');
-      await loadTravelers();
-    }
-  };
-
-  const openEdit = () => {
-    setDraft({ name, destination, latitude, longitude, start, end });
-    setMsg('');
-    setResults([]);
-    setQ('');
-    setEditOpen(true);
-  };
-
-  const searchPlace = async () => {
-    if (!q.trim()) return;
-    setSearching(true);
-    setResults([]);
-    setMsg('');
-    try {
-      const res = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q.trim())}&count=5&language=en`
-      );
-      const data = await res.json();
-      setResults(data.results || []);
-      if (!data.results?.length) setMsg('No places found. Try another name.');
-    } catch (error) {
-      setMsg('Search failed. Check your connection and try again.');
-    } finally {
-      setSearching(false);
-    }
-  };
-
-  const pickPlace = r => {
-    const text = [r.name, r.admin1, r.country].filter(Boolean).join(', ');
-    setDraft(d => ({ ...d, destination: text, latitude: r.latitude, longitude: r.longitude }));
-    setResults([]);
-    setQ('');
-  };
-
-  const saveEdit = async () => {
-    if (!draft.name.trim()) {
-      setMsg('Give the trip a name.');
-      return;
-    }
-    if (draft.end < draft.start) {
-      setMsg('The end date must be on or after the start date.');
-      return;
-    }
-    if (dayCount(draft.start, draft.end) > MAX_DAYS) {
-      setMsg(`A trip can be at most ${MAX_DAYS} days.`);
-      return;
-    }
-    const ok = await saveTrip(draft.start, draft.end, {
-      name: draft.name.trim(),
-      destination: draft.destination,
-      latitude: draft.latitude,
-      longitude: draft.longitude,
-    });
-    if (ok) {
-      setEditOpen(false);
-      setMsg('');
-    } else {
-      setMsg('Could not save the trip. Please try again.');
-    }
-  };
-
-  const pickerValue =
-    picker === 'join' ? myJoin : picker === 'start' ? draft?.start : draft?.end;
-
   const selectedDay = days.find(d => d.iso === selected);
 
   return (
@@ -270,6 +176,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
         <Text style={s.title}>{name}</Text>
         <Text style={s.sub}>{destination}</Text>
         <Text style={s.sub}>{label}</Text>
+        <Text style={s.hint}>Change trip details from your icon at the top right.</Text>
         <View style={s.badge}>
           <Text style={s.badgeText}>
             {days.length} DAYS · {statusText.toUpperCase()}
@@ -313,7 +220,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
                     <View style={s.stack}>
                       {here.map(t => (
                         <View key={t.uid} style={t.uid === uid ? s.meRing : null}>
-                          <Avatar characterId={t.character} outfit={t.outfit} size={30} />
+                          <Avatar characterId={t.character} size={30} />
                         </View>
                       ))}
                     </View>
@@ -356,7 +263,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
           return (
             <View key={t.uid} style={s.travelerRow}>
               <View style={mine ? s.meFrame : null}>
-                <Avatar characterId={t.character} outfit={t.outfit} size={32} />
+                <Avatar characterId={t.character} size={32} />
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={s.travelerName}>{t.name}{mine ? ' ★ YOU' : ''}</Text>
@@ -372,16 +279,6 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
           <Text style={s.pillText}>📅 My join date: {formatDate(myJoin)}</Text>
         </TouchableOpacity>
 
-        <Text style={s.label}>My outfit colour</Text>
-        <View style={s.swatchRow}>
-          {OUTFITS.map(c => (
-            <TouchableOpacity
-              key={c}
-              onPress={() => saveOutfit(c)}
-              style={[s.swatch, { backgroundColor: c }, myOutfit === c && s.swatchOn]}
-            />
-          ))}
-        </View>
       </View>
 
       {/* Sky and time */}
@@ -394,7 +291,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
           <View style={[s.orb, daylight ? s.sunOrb : s.moonOrb]} />
           <View style={[s.hill, { backgroundColor: daylight ? '#a9dabb' : '#527989' }]} />
           <View style={[s.me, !daylight && s.meSleep]}>
-            <Avatar characterId={profile.character} outfit={myOutfit} sleeping={!daylight} size={50} />
+            <Avatar characterId={profile.character} sleeping={!daylight} size={50} />
           </View>
           {!daylight ? <Text style={s.zzz}>💤</Text> : null}
         </View>
@@ -447,82 +344,17 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
         </TouchableOpacity>
       </View>
 
-      {/* Edit trip */}
-      <View style={s.card}>
-        {!editOpen ? (
-          <TouchableOpacity onPress={openEdit}>
-            <Text style={s.h3}>✎ Edit trip</Text>
-            <Text style={s.sub}>Name, destination and dates</Text>
-          </TouchableOpacity>
-        ) : (
-          <View>
-            <Text style={s.h3}>✎ Edit trip</Text>
-
-            <Text style={s.label}>Trip name</Text>
-            <TextInput
-              style={s.input}
-              value={draft.name}
-              onChangeText={t => setDraft(d => ({ ...d, name: t }))}
-              maxLength={50}
-            />
-
-            <Text style={s.label}>Destination</Text>
-            <Text style={s.current}>{draft.destination}</Text>
-            <View style={{ flexDirection: 'row' }}>
-              <TextInput
-                style={[s.input, { flex: 1, marginRight: 8 }]}
-                placeholder="Search for a city or town"
-                placeholderTextColor="#8aa09a"
-                value={q}
-                onChangeText={setQ}
-                onSubmitEditing={searchPlace}
-              />
-              <TouchableOpacity style={s.pill} onPress={searchPlace} disabled={searching}>
-                <Text style={s.pillText}>{searching ? '...' : 'Find'}</Text>
-              </TouchableOpacity>
-            </View>
-            {results.map(r => (
-              <TouchableOpacity key={r.id} style={s.result} onPress={() => pickPlace(r)}>
-                <Text style={s.pillText}>
-                  {[r.name, r.admin1, r.country].filter(Boolean).join(', ')}
-                </Text>
-              </TouchableOpacity>
-            ))}
-
-            <Text style={s.label}>Trip start</Text>
-            <TouchableOpacity style={s.input} onPress={() => setPicker('start')}>
-              <Text style={s.inputText}>📅 {formatDate(draft.start)}</Text>
-            </TouchableOpacity>
-            <Text style={s.label}>Trip end</Text>
-            <TouchableOpacity style={s.input} onPress={() => setPicker('end')}>
-              <Text style={s.inputText}>📅 {formatDate(draft.end)}</Text>
-            </TouchableOpacity>
-
-            {msg ? <Text style={s.error}>{msg}</Text> : null}
-            <View style={{ flexDirection: 'row', marginTop: 8 }}>
-              <TouchableOpacity style={[s.saveBtn, { flex: 1, marginRight: 8 }]} onPress={saveEdit}>
-                <Text style={s.pillText}>Save trip changes</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.pill} onPress={() => setEditOpen(false)}>
-                <Text style={s.pillText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-      </View>
-
       <DatePicker
         visible={!!picker}
-        title={picker === 'join' ? 'Your join date' : picker === 'start' ? 'Trip start' : 'Trip end'}
-        value={pickerValue || ''}
-        minDate={picker === 'end' ? draft?.start : ''}
+        title="Your join date"
+        value={myJoin}
+        minDate=""
         onPick={iso => {
-          if (picker === 'join') saveJoin(iso);
-          else setDraft(d => ({ ...d, [picker]: iso }));
+          saveJoin(iso);
           setPicker(null);
         }}
         onClear={() => {
-          if (picker === 'join') saveJoin('');
+          saveJoin('');
           setPicker(null);
         }}
         onClose={() => setPicker(null)}
@@ -542,6 +374,7 @@ const s = StyleSheet.create({
   h3: { color: P.ink, fontSize: 18, fontWeight: '800', marginBottom: 2 },
   sub: { color: P.muted, fontSize: 14, marginTop: 2 },
   tiny: { color: P.muted, fontSize: 11 },
+  hint: { color: '#52756b', fontSize: 12, marginTop: 6 },
   badge: { alignSelf: 'flex-start', ...border, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12, marginTop: 10, backgroundColor: '#fff' },
   badgeText: { color: P.ink, fontWeight: '800', fontSize: 12 },
 
@@ -554,7 +387,7 @@ const s = StyleSheet.create({
   node: { width: 22, height: 22, marginTop: 14, backgroundColor: '#fff', borderWidth: 3, borderColor: P.ink, borderRadius: 6, transform: [{ rotate: '45deg' }] },
   nodeDone: { backgroundColor: '#8ecdc0' },
   nodeSel: { backgroundColor: '#ffae79' },
-  stack: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: 16, minHeight: 40 },
+  stack: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: 16, minHeight: 52 },
   meRing: { borderWidth: 2, borderColor: '#db7868', borderRadius: 18, backgroundColor: '#fff1d9' },
 
   notice: { backgroundColor: P.soft, borderWidth: 2, borderColor: P.line, borderRadius: 12, padding: 12, marginTop: 4 },
@@ -602,7 +435,4 @@ const s = StyleSheet.create({
   inputText: { color: P.ink, fontSize: 15 },
   current: { color: P.muted, fontSize: 13, marginBottom: 6 },
   result: { backgroundColor: '#fff', ...border, borderRadius: 14, padding: 10, marginTop: 8 },
-  swatchRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 2 },
-  swatch: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: '#afc9bb', marginRight: 8, marginBottom: 8 },
-  swatchOn: { borderColor: P.ink, borderWidth: 4 },
 });

@@ -246,11 +246,11 @@ export default function App() {
         ) : tab === 'expenses' ? (
           <ExpensesScreen authToken={authToken} profile={profile} />
         ) : (
-          <ProfileScreen profile={profile} />
+        <ProfileScreen authToken={authToken} profile={profile} uid={uid} onSaved={setProfile} />
         )}
 
         <TouchableOpacity style={styles.meBtn} onPress={() => setTab('me')}>
-          <Avatar characterId={profile.character} size={36} />
+          <Avatar characterId={profile.character} size={28} />
         </TouchableOpacity>
       </View>
 
