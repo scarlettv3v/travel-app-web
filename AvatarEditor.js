@@ -35,6 +35,38 @@ function Chips({ labels, value, onPick }) {
   );
 }
 
+function HairStyleChips({ value, onPick }) {
+  const smoothIndex = HAIR_STYLES.indexOf('Short Smooth');
+  const wavyIndex = HAIR_STYLES.indexOf('Short Wavy');
+
+  const order = HAIR_STYLES
+    .map((_, index) => index)
+    .filter(index => index !== smoothIndex);
+
+  if (smoothIndex >= 0) {
+    const position = order.indexOf(wavyIndex);
+    order.splice(position >= 0 ? position : 0, 0, smoothIndex);
+  }
+
+  return (
+    <View style={s.row}>
+      {order.map(index => (
+        <TouchableOpacity
+          key={index}
+          onPress={() => onPick(index)}
+          style={[
+            s.chip,
+            value === index && s.chipOn,
+          ]}
+        >
+          <Text style={s.chipText}>
+            {HAIR_STYLES[index]}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
 // look = { skin, hairStyle, hair, outfit, accessory } (numbers)
 // onChange gets the new look every time something is tapped
 export default function AvatarEditor({ look, onChange }) {
@@ -62,7 +94,10 @@ export default function AvatarEditor({ look, onChange }) {
       <Swatches colors={SKINS} value={look.skin} onPick={i => set('skin', i)} />
 
       <Text style={s.label}>Hair style</Text>
-      <Chips labels={HAIR_STYLES} value={look.hairStyle} onPick={i => set('hairStyle', i)} />
+     <HairStyleChips
+  value={look.hairStyle}
+  onPick={i => set('hairStyle', i)}
+/>
 
       <Text style={s.label}>Hair colour</Text>
       <Swatches colors={HAIR_COLORS} value={look.hair} onPick={i => set('hair', i)} />
