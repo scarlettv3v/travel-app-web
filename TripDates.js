@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Text, View, StyleSheet, TouchableOpacity } from 'react-native';
-import { colors } from './theme';
+import { Text, View, TouchableOpacity } from 'react-native';
 import { useTrip, dayCount, MAX_DAYS } from './trip';
 import DatePicker, { formatDate } from './DatePicker';
+import Popup from './Popup';
+import { ui } from './ui';
 
 export default function TripDates() {
   const { start, end, label, saveTrip } = useTrip();
@@ -57,46 +58,56 @@ export default function TripDates() {
   };
 
   return (
-    <View style={styles.wrap}>
-      {!open ? (
-        <View style={styles.summary}>
-          <Text style={styles.summaryText}>🗓️ Trip: {label}</Text>
-          <TouchableOpacity style={styles.changeBtn} onPress={openEditor}>
-            <Text style={styles.btnText}>✏️ Change</Text>
+    <View>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          marginTop: 14,
+        }}
+      >
+        <Text style={[ui.sub, { flex: 1, marginTop: 0, marginRight: 8 }]}>🗓️ Trip: {label}</Text>
+        <TouchableOpacity
+          style={[ui.pill, ui.pillSmall, { marginRight: 0, marginBottom: 0 }]}
+          onPress={openEditor}
+        >
+          <Text style={[ui.pillText, ui.pillTextSmall]}>✏️ Change dates</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Popup visible={open} onClose={() => setOpen(false)}>
+        <Text style={ui.kicker}>TRIP DATES</Text>
+        <Text style={ui.h2}>Change trip dates</Text>
+
+        <Text style={ui.label}>Start date</Text>
+        <TouchableOpacity style={ui.field} onPress={() => setPickerKey('start')}>
+          <Text style={newStart ? ui.fieldText : ui.fieldPlaceholder}>
+            📅 {newStart ? formatDate(newStart) : 'Tap to pick a date'}
+          </Text>
+        </TouchableOpacity>
+
+        <Text style={ui.label}>End date</Text>
+        <TouchableOpacity style={ui.field} onPress={() => setPickerKey('end')}>
+          <Text style={newEnd ? ui.fieldText : ui.fieldPlaceholder}>
+            📅 {newEnd ? formatDate(newEnd) : 'Tap to pick a date'}
+          </Text>
+        </TouchableOpacity>
+
+        <View style={[ui.row, { marginTop: 18 }]}>
+          <TouchableOpacity
+            style={[ui.pill, ui.pillPrimary, busy && { opacity: 0.5 }]}
+            onPress={save}
+            disabled={busy}
+          >
+            <Text style={ui.pillText}>{busy ? 'Saving...' : 'Save dates'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={ui.pill} onPress={() => setOpen(false)}>
+            <Text style={ui.pillText}>Cancel</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        <View style={styles.card}>
-          <Text style={styles.title}>Trip dates</Text>
-
-          <TouchableOpacity style={styles.field} onPress={() => setPickerKey('start')}>
-            <Text style={styles.label}>Start date</Text>
-            <Text style={newStart ? styles.value : styles.placeholder}>
-              📅 {newStart ? formatDate(newStart) : 'Tap to pick a date'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.field} onPress={() => setPickerKey('end')}>
-            <Text style={styles.label}>End date</Text>
-            <Text style={newEnd ? styles.value : styles.placeholder}>
-              📅 {newEnd ? formatDate(newEnd) : 'Tap to pick a date'}
-            </Text>
-          </TouchableOpacity>
-
-          <View style={{ flexDirection: 'row', marginTop: 6 }}>
-            <TouchableOpacity
-              style={[styles.saveBtn, { flex: 1, marginRight: 8 }]}
-              onPress={save}
-              disabled={busy}
-            >
-              <Text style={styles.btnText}>{busy ? 'Saving...' : 'Save dates'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setOpen(false)}>
-              <Text style={styles.btnText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+      </Popup>
 
       <DatePicker
         visible={!!pickerKey}
@@ -110,19 +121,3 @@ export default function TripDates() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  wrap: { paddingHorizontal: 15, marginBottom: 8 },
-  summary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  summaryText: { color: colors.textMuted, fontSize: 13, flex: 1 },
-  changeBtn: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 },
-  card: { backgroundColor: colors.cardDark, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.highlight },
-  title: { color: colors.highlight, fontWeight: 'bold', fontSize: 15, marginBottom: 8 },
-  field: { backgroundColor: colors.input, padding: 12, borderRadius: 8, marginBottom: 8 },
-  label: { color: colors.textMuted, fontSize: 12, marginBottom: 4 },
-  value: { color: colors.text, fontSize: 14 },
-  placeholder: { color: colors.textDim, fontSize: 14 },
-  saveBtn: { backgroundColor: colors.success, padding: 12, borderRadius: 8, alignItems: 'center' },
-  cancelBtn: { backgroundColor: colors.danger, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 8, alignItems: 'center' },
-  btnText: { color: colors.text, fontWeight: 'bold', fontSize: 13 },
-});

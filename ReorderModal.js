@@ -8,8 +8,8 @@ import {
   ScrollView,
   PanResponder,
 } from 'react-native';
-import { colors } from './theme';
 import { getCategory } from './categories';
+import { P, ui } from './ui';
 
 const ROW_H = 60;
 
@@ -92,8 +92,11 @@ export default function ReorderModal({ visible, plans, onSave, onClose }) {
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          <Text style={styles.title}>↕️ Reorder stops</Text>
-          <Text style={styles.sub}>Hold ☰ and drag a stop up or down</Text>
+          <Text style={ui.kicker}>REORDER</Text>
+          <Text style={ui.h2}>Stops without a time</Text>
+          <Text style={[ui.sub, { marginBottom: 12 }]}>
+            Hold ☰ and drag a stop up or down. Stops with a time are placed by their time.
+          </Text>
 
           <ScrollView scrollEnabled={!dragId} style={{ maxHeight: 420 }}>
             <View style={{ height: n * ROW_H }}>
@@ -122,18 +125,18 @@ export default function ReorderModal({ visible, plans, onSave, onClose }) {
             </View>
           </ScrollView>
 
-          <View style={{ flexDirection: 'row', marginTop: 14 }}>
+          <View style={[ui.row, { marginTop: 14 }]}>
             <TouchableOpacity
-              style={[styles.saveBtn, { flex: 1, marginRight: 8 }]}
+              style={[ui.pill, ui.pillPrimary]}
               onPress={() => {
                 onSave(itemsRef.current);
                 onClose();
               }}
             >
-              <Text style={styles.btnText}>Save order</Text>
+              <Text style={ui.pillText}>Save order</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-              <Text style={styles.btnText}>Cancel</Text>
+            <TouchableOpacity style={ui.pill} onPress={onClose}>
+              <Text style={ui.pillText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -143,26 +146,37 @@ export default function ReorderModal({ visible, plans, onSave, onClose }) {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 15 },
-  card: { backgroundColor: colors.cardDark, borderRadius: 10, padding: 14, borderWidth: 1, borderColor: colors.primary },
-  title: { color: colors.primary, fontWeight: 'bold', fontSize: 16 },
-  sub: { color: colors.textMuted, fontSize: 12, marginTop: 4, marginBottom: 12 },
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(38,58,72,0.6)',
+    justifyContent: 'center',
+    padding: 15,
+  },
+  card: {
+    backgroundColor: P.paper,
+    borderWidth: 2,
+    borderColor: P.ink,
+    borderRadius: 22,
+    padding: 18,
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+  },
   row: {
     position: 'absolute',
     left: 0,
     right: 0,
     height: ROW_H - 8,
-    backgroundColor: colors.card,
-    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: P.fieldBorder,
+    borderRadius: 14,
     flexDirection: 'row',
     alignItems: 'center',
     paddingLeft: 12,
   },
-  rowDragging: { backgroundColor: '#1f3a5f', borderWidth: 1, borderColor: colors.primary, zIndex: 10 },
-  rowText: { flex: 1, color: colors.text, fontSize: 14, fontWeight: 'bold' },
+  rowDragging: { backgroundColor: P.mint, borderColor: P.ink, zIndex: 10 },
+  rowText: { flex: 1, color: P.ink, fontSize: 14, fontWeight: '800' },
   handle: { width: 56, height: '100%', alignItems: 'center', justifyContent: 'center' },
-  handleText: { color: colors.textMuted, fontSize: 22 },
-  saveBtn: { backgroundColor: colors.success, padding: 12, borderRadius: 8, alignItems: 'center' },
-  cancelBtn: { backgroundColor: colors.danger, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 8, alignItems: 'center' },
-  btnText: { color: colors.text, fontWeight: 'bold', fontSize: 14 },
+  handleText: { color: P.muted, fontSize: 22 },
 });

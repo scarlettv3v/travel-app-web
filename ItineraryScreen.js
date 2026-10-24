@@ -1,26 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Text, View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { colors } from './theme';
+import { Text, View, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
-  import { useTrip } from './trip';
-  import TripDates from './TripDates';
+import { useTrip } from './trip';
+import TripDates from './TripDates';
 import { getCategory } from './categories';
-import DayMap from './DayMap';
-import { openInGoogleMaps } from './maps';
 import ReorderModal from './ReorderModal';
-import { getRoute, formatDuration, formatDistance } from './routing';
 import EditPlanModal from './EditPlanModal';
+import LinkText from './LinkText';
+import { openPlace, openRoute } from './places';
+import { P, ui, screenContent } from './ui';
 
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
-const num = (doc, key) => {
-  const f = doc.fields && doc.fields[key];
-  if (!f) return 0;
-  return Number(f.doubleValue !== undefined ? f.doubleValue : f.integerValue || 0);
-};
 const TRANSPORT_EMOJI = { flight: '✈️', car: '🚗', train: '🚆', ferry: '⛴️' };
+const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
 
-export default function ItineraryScreen({ authToken, profile }) {
+export default function ItineraryScreen({ authToken, profile, onOpenBookings }) {
   const { days: DAYS } = useTrip();
   const [selected, setSelected] = useState(0);
   const [transport, setTransport] = useState([]);
@@ -28,8 +23,8 @@ export default function ItineraryScreen({ authToken, profile }) {
   const [plans, setPlans] = useState([]);
   const [characters, setCharacters] = useState({});
   const [reordering, setReordering] = useState(false);
-    const [route, setRoute] = useState(null);
-      const [editingPlan, setEditingPlan] = useState(null);
+  const [editingPlan, setEditingPlan] = useState(null);
+
   const loadAll = useCallback(async () => {
     try {
       const tRes = await firestoreFetch(`${FIRESTORE_BASE}/transport?pageSize=300`, authToken);
@@ -60,9 +55,11 @@ export default function ItineraryScreen({ authToken, profile }) {
           address: str(doc, 'address'),
           checkIn: str(doc, 'checkIn'),
           checkOut: str(doc, 'checkOut'),
-                    checkInTime: str(doc, 'checkInTime'),
+          checkInTime: str(doc, 'checkInTime'),
           checkOutTime: str(doc, 'checkOutTime'),
           confirmation: str(doc, 'confirmation'),
+          lat: Number(doc.fields?.lat?.doubleValue ?? doc.fields?.lat?.integerValue ?? 0),
+          lng: Number(doc.fields?.lng?.doubleValue ?? doc.fields?.lng?.integerValue ?? 0),
           addedByCharacter: str(doc, 'addedByCharacter'),
         }))
       );
@@ -78,14 +75,20 @@ export default function ItineraryScreen({ authToken, profile }) {
           date: str(doc, 'date'),
           time: str(doc, 'time'),
           status: str(doc, 'status') || 'planned',
-                    lat: Number(doc.fields?.lat?.doubleValue ?? doc.fields?.lat?.integerValue ?? 0),
+          lat: Number(doc.fields?.lat?.doubleValue ?? doc.fields?.lat?.integerValue ?? 0),
           lng: Number(doc.fields?.lng?.doubleValue ?? doc.fields?.lng?.integerValue ?? 0),
-                    order:
+          order:
             doc.fields?.order?.integerValue !== undefined
               ? Number(doc.fields.order.integerValue)
               : null,
           joining: (doc.fields?.joining?.arrayValue?.values || []).map(v => v.stringValue),
           addedByName: str(doc, 'addedByName'),
+          // plans created from the Bookings tab (activities / restaurants)
+          source: str(doc, 'source'),
+          bookingKind: str(doc, 'bookingKind'),
+          address: str(doc, 'address'),
+          confirmation: str(doc, 'confirmation'),
+          partySize: str(doc, 'partySize'),
         }))
       );
 
@@ -134,13 +137,6 @@ export default function ItineraryScreen({ authToken, profile }) {
     );
   };
 
-  const toggleStatus = plan =>
-    patchPlan(
-      plan,
-      { status: { stringValue: plan.status === 'booked' ? 'planned' : 'booked' } },
-      ['status']
-    );
-
   const removePlan = async plan => {
     try {
       await firestoreFetch(`https://firestore.googleapis.com/v1/${plan.id}`, authToken, {
@@ -153,67 +149,36 @@ export default function ItineraryScreen({ authToken, profile }) {
     }
   };
 
-    const day = DAYS[Math.min(selected, DAYS.length - 1)];
+  const day = DAYS[Math.min(selected, DAYS.length - 1)];
 
-  const departing = transport
-    .filter(t => t.departDate === day.iso)
-    .sort((a, b) => a.departTime.localeCompare(b.departTime));
+  const departing = transport.filter(t => t.departDate === day.iso);
   const arriving = transport.filter(t => t.arriveDate === day.iso && t.departDate !== day.iso);
   const stayingTonight = stays.filter(s => s.checkIn <= day.iso && day.iso < s.checkOut);
   const checkingOut = stays.filter(s => s.checkOut === day.iso);
-    const dayPlans = plans
-    .filter(p => p.date === day.iso)
-    .sort((a, b) => {
-      const ao = a.order ?? 1000;
-      const bo = b.order ?? 1000;
-      if (ao !== bo) return ao - bo;
-      return (a.time || '99:99').localeCompare(b.time || '99:99');
-    });
-      const mapStops = dayPlans.filter(p => p.lat && p.lng);
-        const stopsKey = mapStops.map(s => `${s.lat},${s.lng}`).join(';');
 
-  useEffect(() => {
-    let active = true;
-    setRoute(null);
-    if (mapStops.length < 2) return;
-    getRoute(mapStops).then(r => {
-      if (active) setRoute(r);
-    });
-    return () => {
-      active = false;
-    };
-  }, [stopsKey]);
-        const movePlan = async (plan, direction) => {
-    const list = [...dayPlans];
-    const i = list.findIndex(p => p.id === plan.id);
-    const j = i + direction;
-    if (j < 0 || j >= list.length) return;
+  // all of today's transport in time order
+  const travel = [
+    ...arriving.map(t => ({ t, dir: 'arrive', time: t.arriveTime || '' })),
+    ...departing.map(t => ({ t, dir: 'depart', time: t.departTime || '' })),
+  ].sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
 
-    [list[i], list[j]] = [list[j], list[i]];
+  const dayPlans = plans.filter(p => p.date === day.iso);
 
-    try {
-      await Promise.all(
-        list.map((p, index) =>
-          firestoreFetch(
-            `https://firestore.googleapis.com/v1/${p.id}?updateMask.fieldPaths=order`,
-            authToken,
-            {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                fields: { order: { integerValue: String(index) } },
-              }),
-            }
-          )
-        )
-      );
-      await loadAll();
-    } catch (error) {
-      console.error('Error moving plan:', error);
-      alert('Could not reorder.');
-    }
-  };
-                const saveOrder = async list => {
+  // Everything with a time goes in time order. Plans without a time come after,
+  // in the order you set with Reorder.
+  const stops = [...dayPlans].sort((a, b) => {
+    const at = a.time || '99:99';
+    const bt = b.time || '99:99';
+    if (at !== bt) return at.localeCompare(bt);
+    const ao = a.order ?? 1000;
+    const bo = b.order ?? 1000;
+    if (ao !== bo) return ao - bo;
+    return a.spotName.localeCompare(b.spotName);
+  });
+  const untimedPlans = stops.filter(p => !p.time && p.source !== 'booking');
+
+
+  const saveOrder = async list => {
     try {
       await Promise.all(
         list.map((p, index) =>
@@ -236,7 +201,8 @@ export default function ItineraryScreen({ authToken, profile }) {
       alert('Could not save the new order.');
     }
   };
-    const savePlanEdit = async (plan, date, time) => {
+
+  const savePlanEdit = async (plan, date, time) => {
     try {
       let mask = 'updateMask.fieldPaths=date&updateMask.fieldPaths=time';
       // Moving to another day clears the manual order, so it sorts by time there
@@ -262,176 +228,275 @@ export default function ItineraryScreen({ authToken, profile }) {
       alert('Could not save the changes.');
     }
   };
-  const nothing =
-    !departing.length && !arriving.length && !stayingTonight.length &&
-    !checkingOut.length && !dayPlans.length;
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>📅 Itinerary</Text>
-        <TripDates />
-      <View style={{ height: 70 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
-          {DAYS.map((d, index) => (
-            <TouchableOpacity
-              key={d.iso}
-              style={[styles.dayChip, index === selected && styles.dayChipOn]}
-              onPress={() => setSelected(index)}
-            >
-              <Text style={styles.dayNum}>Day {d.dayNumber}</Text>
-              <Text style={styles.dayDate}>{d.weekday} {d.short}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+  // ---------- small render helpers ----------
+  const empty = text => (
+    <View style={ui.notice}>
+      <Text style={ui.noticeText}>{text}</Text>
+    </View>
+  );
+
+  const pillBtn = (label, onPress, extra) => (
+    <TouchableOpacity
+      style={[ui.pill, ui.pillSmall, extra && extra.pill]}
+      onPress={onPress}
+    >
+      <Text style={[ui.pillText, ui.pillTextSmall, extra && extra.text]}>{label}</Text>
+    </TouchableOpacity>
+  );
+
+  // a transport strip: blue, compact, clearly "getting there"
+  const renderTravel = ({ t, dir }) => (
+    <View key={t.id + dir} style={[styles.strip, styles.travelStrip]}>
+      <View style={styles.stripIcon}>
+        <Text style={{ fontSize: 18 }}>{TRANSPORT_EMOJI[t.type] || '✈️'}</Text>
       </View>
-
-      <ScrollView contentContainerStyle={{ padding: 15 }}>
-        <Text style={styles.dayHeading}>
-          Day {day.dayNumber} · {day.weekday} {day.short}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.stripLabel}>
+          {dir === 'arrive' ? `ARRIVES ${t.arriveTime || ''}` : `DEPARTS ${t.departTime || 'TIME TBC'}`}
         </Text>
-                <DayMap stops={mapStops} routeCoords={route ? route.coords : null} />
-        {route ? (
-          <Text style={styles.totalDrive}>
-            🚗 Total driving: {formatDuration(route.totalSeconds)} · {formatDistance(route.totalMeters)}
+        <Text style={ui.strong}>
+          {t.from} → {t.to}
+        </Text>
+        <Text style={[ui.sub, { fontSize: 12 }]}>
+          {[t.provider, t.reference].filter(Boolean).join(' ')}
+          {t.confirmation ? ` · Conf: ${t.confirmation}` : ''}
+        </Text>
+        {dir === 'depart' && t.arriveTime ? (
+          <Text style={[ui.sub, { fontSize: 12 }]}>
+            Arrives {t.arriveDate !== day.iso ? `${t.arriveDate} ` : ''}
+            {t.arriveTime}
           </Text>
         ) : null}
-        {arriving.length > 0 && <Text style={styles.section}>Arriving</Text>}
-        {arriving.map(t => (
-          <View key={t.id + 'a'} style={styles.card}>
-            <Text style={styles.cardTitle}>
-              {TRANSPORT_EMOJI[t.type] || '✈️'} Arrives {t.arriveTime}
-            </Text>
-            <Text style={styles.line}>{t.from} → {t.to}</Text>
-            <Text style={styles.hint}>{t.provider} {t.reference}</Text>
-          </View>
-        ))}
+      </View>
+      {t.addedByCharacter ? <Avatar characterId={t.addedByCharacter} size={24} /> : null}
+    </View>
+  );
 
-        {departing.length > 0 && <Text style={styles.section}>Transport</Text>}
-        {departing.map(t => (
-          <View key={t.id} style={styles.card}>
-            <View style={styles.row}>
-              <Text style={[styles.cardTitle, { flex: 1 }]}>
-                {TRANSPORT_EMOJI[t.type] || '✈️'} {t.departTime || 'Time TBC'} · {t.provider}
-                {t.reference ? ` ${t.reference}` : ''}
-              </Text>
-              {t.addedByCharacter ? <Avatar characterId={t.addedByCharacter} size={24} /> : null}
-            </View>
-            <Text style={styles.line}>{t.from} → {t.to}</Text>
-            {t.arriveTime ? (
-              <Text style={styles.hint}>
-                Arrives {t.arriveDate !== day.iso ? `${t.arriveDate} ` : ''}{t.arriveTime}
-              </Text>
-            ) : null}
-            {t.confirmation ? <Text style={styles.hint}>Confirmation: {t.confirmation}</Text> : null}
-          </View>
-        ))}
-
-        {dayPlans.length > 0 && (
-          <View style={styles.sectionRow}>
-            <Text style={[styles.section, { marginBottom: 0 }]}>Plans</Text>
-            {dayPlans.length > 1 && (
-              <TouchableOpacity style={styles.reorderBtn} onPress={() => setReordering(true)}>
-                <Text style={styles.smallBtnText}>↕️ Reorder</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-        {dayPlans.map((p, index) => {
-          const iAmIn = p.joining.includes(profile.name);
-                    const stopIndex = mapStops.findIndex(s => s.id === p.id);
-          const leg = route && stopIndex >= 0 ? route.legs[stopIndex] : null;
-          return (
-            <View key={p.id} style={styles.card}>
-              <View style={styles.row}>
-                <Text style={[styles.cardTitle, { flex: 1 }]}>
-                    {index + 1}. {getCategory(p.category).emoji} {p.time ? `${p.time} · ` : ''}{p.spotName}
-                </Text>
-                <Text style={p.status === 'booked' ? styles.booked : styles.planned}>
-                  {p.status === 'booked' ? '✅ Booked' : '📝 Planned'}
-                </Text>
-              </View>
-
-              {p.note ? <Text style={styles.noteText}>{p.note}</Text> : null}
-
-              <View style={[styles.row, { marginTop: 8 }]}>
-                <Text style={styles.hint}>Joining: </Text>
-                {p.joining.length === 0 && <Text style={styles.hint}>nobody yet</Text>}
-                {p.joining.map(name => (
-                  <View key={name} style={{ marginRight: 4 }}>
-                    <Avatar characterId={characters[name] || 'fox'} size={24} />
-                  </View>
-                ))}
-              </View>
-              {leg ? (
-                <Text style={styles.legText}>
-                  🚗 {formatDuration(leg.seconds)} · {formatDistance(leg.meters)} to next stop
-                </Text>
-              ) : null}
-                            <View style={[styles.row, { marginTop: 10 }]}>
-                <TouchableOpacity style={styles.smallBtn}   onPress={() => openInGoogleMaps(p.lat, p.lng, p.spotName)}>
-                  <Text style={styles.smallBtnText}>📍 Maps</Text>
-                </TouchableOpacity>
-                                <TouchableOpacity style={styles.smallBtn} onPress={() => setEditingPlan(p)}>
-                  <Text style={styles.smallBtnText}>✏️ Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.smallBtn} onPress={() => toggleJoin(p)}>
-                  <Text style={styles.smallBtnText}>{iAmIn ? 'Leave' : "I'm in"}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.smallBtn} onPress={() => toggleStatus(p)}>
-                  <Text style={styles.smallBtnText}>
-                    {p.status === 'booked' ? 'Mark planned' : 'Mark booked'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.smallBtn, { backgroundColor: colors.danger }]} onPress={() => removePlan(p)}>
-                  <Text style={styles.smallBtnText}>🗑️</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          );
-        })}
-
-        {checkingOut.length > 0 && <Text style={styles.section}>Check-out today</Text>}
-        {checkingOut.map(s => (
-          <View key={s.id + 'o'} style={styles.card}>
-                       <Text style={styles.cardTitle}>
-              🧳 Check out of {s.name}{s.checkOutTime ? ` by ${s.checkOutTime}` : ''}
-            </Text>
-          </View>
-        ))}
-
-        {stayingTonight.length > 0 && <Text style={styles.section}>Staying tonight</Text>}
-        {stayingTonight.map(s => (
-          <View key={s.id} style={styles.card}>
-            <View style={styles.row}>
-              <Text style={[styles.cardTitle, { flex: 1 }]}>🏨 {s.name}</Text>
-              {s.addedByCharacter ? <Avatar characterId={s.addedByCharacter} size={24} /> : null}
-            </View>
-            {s.address ? <Text style={styles.hint}>{s.address}</Text> : null}
-                      {s.checkIn === day.iso ? (
-              <Text style={styles.hint}>
-                Check-in today{s.checkInTime ? ` from ${s.checkInTime}` : ''}
-              </Text>
-            ) : null}
-            {s.confirmation ? <Text style={styles.hint}>Confirmation: {s.confirmation}</Text> : null}
-          </View>
-        ))}
-
-        {nothing && (
-          <Text style={[styles.hint, { textAlign: 'center', marginTop: 20 }]}>
-            Nothing planned for this day yet. Add spots from the Spots tab with "Add to day".
+  // a stay strip: lavender, "where you sleep"
+  const renderStay = (s, label, title, sub) => (
+    <View key={s.id + label} style={[styles.strip, styles.stayStrip]}>
+      <View style={styles.stripIcon}>
+        <Text style={{ fontSize: 18 }}>{label === 'CHECK-OUT' ? '🧳' : '🏨'}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.stripLabel}>{label}</Text>
+        <Text style={ui.strong}>{title}</Text>
+        {sub.map((line, i) => (
+          <Text key={i} style={[ui.sub, { fontSize: 12 }]}>
+            {line}
           </Text>
-        )}
+        ))}
+        <View style={[ui.row, { marginTop: 8 }]}>
+          {pillBtn('Google Maps', () => openPlace({ name: s.name, address: s.address }))}
+        </View>
+      </View>
+      {s.addedByCharacter ? <Avatar characterId={s.addedByCharacter} size={24} /> : null}
+    </View>
+  );
 
-                <View style={{ height: 30 }} />
+  // a card in the plan timeline
+  const renderStopCard = (p, index) => {
+    const locked = p.source === 'booking';
+    const iAmIn = p.joining.includes(profile.name);
+    const emoji = locked
+      ? p.bookingKind === 'restaurant'
+        ? '🍽️'
+        : '🎟️'
+      : getCategory(p.category).emoji;
+
+    return (
+      <View style={[ui.listCard, { marginTop: 0 }]}>
+        <View style={[ui.tag, locked && { backgroundColor: P.mint }]}>
+          <Text style={ui.tagText}>
+            {locked
+              ? '🔒 Booked · from Bookings'
+              : `${getCategory(p.category).emoji} ${getCategory(p.category).label}`}
+          </Text>
+        </View>
+
+        <Text style={[ui.h3, { marginTop: 8 }]}>
+          {locked ? `${emoji} ` : ''}
+          {p.spotName}
+        </Text>
+
+        {locked && p.partySize ? <Text style={ui.sub}>Party of {p.partySize}</Text> : null}
+        {p.address ? <Text style={ui.sub}>📍 {p.address}</Text> : null}
+        {locked && p.confirmation ? <Text style={ui.sub}>Confirmation: {p.confirmation}</Text> : null}
+        {p.note ? <LinkText style={ui.sub}>{p.note}</LinkText> : null}
+
+        <View style={[ui.row, { marginTop: 10 }]}>
+          <Text style={[ui.sub, { marginTop: 0 }]}>Joining: </Text>
+          {p.joining.length === 0 && <Text style={[ui.sub, { marginTop: 0 }]}>nobody yet</Text>}
+          {p.joining.map(name => (
+            <View key={name} style={{ marginRight: 4 }}>
+              <Avatar characterId={characters[name] || 'fox'} size={24} />
+            </View>
+          ))}
+        </View>
+
+
+        <View style={[ui.row, { marginTop: 12 }]}>
+          {pillBtn(iAmIn ? 'Leave' : "I'm in", () => toggleJoin(p))}
+          {locked ? (
+            <>
+              {pillBtn('Google Maps', () => openPlace({ name: p.spotName, address: p.address }))}
+              {onOpenBookings ? pillBtn('Manage in Bookings', onOpenBookings) : null}
+            </>
+          ) : (
+            <>
+              {pillBtn('Google Maps', () =>
+                openPlace({ name: p.spotName, address: p.address })
+              )}
+              {pillBtn('Edit', () => setEditingPlan(p))}
+              {pillBtn('Delete', () => removePlan(p), {
+                pill: ui.pillDanger,
+                text: ui.pillDangerText,
+              })}
+            </>
+          )}
+        </View>
+      </View>
+    );
+  };
+
+  const hasLogistics = travel.length || checkingOut.length || stayingTonight.length;
+
+  return (
+    <View style={ui.screen}>
+      <ScrollView contentContainerStyle={screenContent} keyboardShouldPersistTaps="handled">
+        {/* Header + day picker */}
+        <View style={ui.card}>
+          <View style={{ paddingRight: 44 }}>
+            <Text style={ui.kicker}>DAY BY DAY</Text>
+            <Text style={ui.h2}>Itinerary</Text>
+            <Text style={ui.sub}>A little plan for every part of the adventure.</Text>
+          </View>
+
+          <TripDates />
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 14 }}>
+            {DAYS.map((d, index) => (
+              <TouchableOpacity
+                key={d.iso}
+                style={[ui.pill, ui.pillSmall, index === selected && ui.pillActive]}
+                onPress={() => setSelected(index)}
+              >
+                <Text style={[ui.pillText, ui.pillTextSmall]}>
+                  Day {d.dayNumber} · {d.short}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          <Text style={[ui.h3, { marginTop: 8 }]}>
+            Day {day.dayNumber} · {day.weekday} {day.short}
+          </Text>
+        </View>
+
+        {/* Stay & travel: logistics, kept apart from the activities */}
+        <View style={ui.card}>
+          <Text style={ui.h3}>Stay & travel</Text>
+          <Text style={ui.sub}>Getting around and where you sleep</Text>
+
+          {!hasLogistics && empty('No transport or stay for this day. Add details in Bookings.')}
+
+          {travel.map(renderTravel)}
+          {checkingOut.map(s =>
+            renderStay(
+              s,
+              'CHECK-OUT',
+              `Check out of ${s.name}`,
+              s.checkOutTime ? [`by ${s.checkOutTime}`] : []
+            )
+          )}
+          {stayingTonight.map(s =>
+            renderStay(
+              s,
+              'STAYING TONIGHT',
+              s.name,
+              [
+                s.address,
+                s.checkIn === day.iso
+                  ? `Check-in today${s.checkInTime ? ` from ${s.checkInTime}` : ''}`
+                  : '',
+                s.confirmation ? `Confirmation: ${s.confirmation}` : '',
+              ].filter(Boolean)
+            )
+          )}
+        </View>
+
+        {/* The day's plan as a timeline */}
+        <View style={ui.card}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={ui.h3}>Today's plan</Text>
+              <Text style={ui.sub}>Things to do, in time order</Text>
+            </View>
+            {untimedPlans.length > 1 ? pillBtn('↕ Reorder', () => setReordering(true)) : null}
+          </View>
+
+          {stops.length === 0 &&
+            empty('No plans for this day. Add spots from the Spots tab, or book an activity in Bookings.')}
+
+          <View style={{ marginTop: 14 }}>
+            {stops.map((p, index) => (
+              <View key={p.id} style={styles.tlRow}>
+                <View style={styles.tlTime}>
+                  <Text style={styles.tlTimeText}>{p.time || '—'}</Text>
+                </View>
+                <View style={styles.tlRail}>
+                  <View
+                    style={[
+                      styles.tlDot,
+                      { backgroundColor: p.source === 'booking' ? P.mint : P.gold },
+                    ]}
+                  >
+                    <Text style={styles.tlDotText}>{index + 1}</Text>
+                  </View>
+                  {index < stops.length - 1 ? <View style={styles.tlLine} /> : null}
+                </View>
+                <View style={styles.tlBody}>{renderStopCard(p, index)}</View>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Day route in Google Maps */}
+        {stops.length > 0 ? (
+          <View style={ui.card}>
+            <Text style={ui.h3}>Day route</Text>
+            <Text style={ui.sub}>Open today's stops, in order, in Google Maps.</Text>
+            <View style={[ui.row, { marginTop: 12 }]}>
+              <TouchableOpacity
+                style={[ui.pill, ui.pillPrimary]}
+                onPress={() =>
+                  openRoute(stops.map(p => ({ name: p.spotName, address: p.address })))
+                }
+              >
+                <Text style={ui.pillText}>🗺️ Open route in Google Maps</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={ui.hint}>
+              Stops without an address are searched by name, so adding addresses gives the best result.
+            </Text>
+          </View>
+        ) : null}
       </ScrollView>
 
       <ReorderModal
         visible={reordering}
-        plans={dayPlans}
+        plans={untimedPlans}
         onSave={saveOrder}
         onClose={() => setReordering(false)}
       />
-            <EditPlanModal
+      <EditPlanModal
         plan={editingPlan}
         onSave={savePlanEdit}
         onClose={() => setEditingPlan(null)}
@@ -441,26 +506,45 @@ export default function ItineraryScreen({ authToken, profile }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, paddingTop: 40 },
-  title: { fontSize: 22, fontWeight: 'bold', color: colors.text, textAlign: 'center', marginBottom: 10 },
-  dayChip: { backgroundColor: colors.input, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 12, marginRight: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.input },
-  dayChipOn: { borderColor: colors.primary, backgroundColor: '#1f3a5f' },
-  dayNum: { color: colors.text, fontWeight: 'bold', fontSize: 14 },
-  dayDate: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
-  dayHeading: { color: colors.text, fontSize: 18, fontWeight: 'bold', marginBottom: 4 },
-  section: { color: colors.textMuted, fontSize: 13, fontWeight: 'bold', marginTop: 14, marginBottom: 6, textTransform: 'uppercase' },
-  card: { backgroundColor: colors.card, padding: 12, borderRadius: 8, marginBottom: 10 },
-  row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
-  cardTitle: { color: colors.text, fontSize: 15, fontWeight: 'bold' },
-  line: { color: colors.text, fontSize: 14, marginTop: 4 },
-  hint: { color: colors.textMuted, fontSize: 13, marginTop: 4 },
-  noteText: { color: colors.textSoft, fontSize: 13, marginTop: 4, fontStyle: 'italic' },
-  booked: { color: colors.success, fontSize: 12, fontWeight: 'bold' },
-  planned: { color: colors.highlight, fontSize: 12, fontWeight: 'bold' },
-  smallBtn: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6, marginRight: 8 },
-  smallBtnText: { color: colors.text, fontSize: 12, fontWeight: 'bold' },
-    sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, marginBottom: 6 },
-  reorderBtn: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 },
-  totalDrive: { color: colors.success, fontSize: 14, fontWeight: 'bold', marginBottom: 6 },
-  legText: { color: colors.primary, fontSize: 13, marginTop: 8 },
+  // stay / travel strips
+  strip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 10,
+  },
+  travelStrip: { backgroundColor: '#dbeeff', borderColor: '#5ba3c7' },
+  stayStrip: { backgroundColor: '#eadcf3', borderColor: '#9b7bc4' },
+  stripIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: P.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  stripLabel: { color: P.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+
+  // timeline
+  tlRow: { flexDirection: 'row' },
+  tlTime: { width: 46, paddingTop: 5, alignItems: 'flex-end', paddingRight: 6 },
+  tlTimeText: { color: P.muted, fontSize: 12, fontWeight: '800', fontFamily: MONO },
+  tlRail: { width: 30, alignItems: 'center' },
+  tlDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: P.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tlDotText: { color: P.ink, fontSize: 12, fontWeight: '800' },
+  tlLine: { flex: 1, width: 3, backgroundColor: P.line, marginVertical: 2 },
+  tlBody: { flex: 1, paddingBottom: 14, paddingLeft: 6 },
 });

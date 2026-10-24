@@ -63,10 +63,11 @@ const SHAPES = {
     M 22 51 C 22 40, 34 34, 50 34 C 66 34, 78 40, 78 51
     L 78 68 C 78 80, 70 87, 59 88 Q 50 89, 41 88
     C 30 87, 22 80, 22 68 Z`,
-  // full jaw line, used when the ears show or hair does not hide the cheeks
-  cheeks: `
-    M 22 63 L 22 68 C 22 80, 30 87, 41 88
-    Q 50 89, 59 88 C 70 87, 78 80, 78 68 L 78 63`,
+  // jaw line, starting exactly where the hairline meets the face edge
+  // (top = that y), so the outline runs on without a gap
+  cheeks: top => `
+    M 22 ${top} L 22 68 C 22 80, 30 87, 41 88
+    Q 50 89, 59 88 C 70 87, 78 80, 78 68 L 78 ${top}`,
   // chin only, used when hair hangs over the cheeks (no stray line by the ears)
   chin: `
     M 31 85 C 34 87, 38 88, 41 88 Q 50 89, 59 88
@@ -85,7 +86,7 @@ const HAT_WIDE = 'L 82 43 C 68 27, 32 27, 18 43 Z';
 // Smooth dome for Bun / Ponytail / Braids. The lower sides sit just outside
 // the face edge, so the outline keeps its full thickness there.
 const DOME = `
-  M 19 62 C 16 46, 24 28, 50 25 C 76 28, 84 46, 81 62
+  M 19 62 C 18 43, 32 26, 50 26 C 68 26, 82 43, 81 62
   L 77 72 L 23 72 Z`;
 
 const BUN_PATH = `
@@ -114,6 +115,7 @@ const BRAID_BANDS = 'M 18 103 L 25 103 M 75 103 L 82 103';
 const HAIR = {
   'Short Wavy': {
     ears: true,
+    top: 59,
     back: `
       M 21 65 L 18 52 Q 14 47, 19 42 L 17 35 L 27 32 L 29 25
       L 39 28 L 46 23 L 54 27 L 63 25 L 67 31 L 76 32 L 77 39
@@ -128,7 +130,7 @@ const HAIR = {
     ears: false,
     chin: true,
     back: `
-      M 18 54 C 16 36, 29 22, 49 22 C 69 22, 83 36, 82 54
+      M 18 54 C 16 36, 29 22, 50 22 C 71 22, 84 36, 82 54
       C 82 64, 87 72, 88 82 C 89 94, 84 106, 72 108
       L 28 108 C 16 106, 11 94, 12 82 C 13 72, 18 64, 18 54 Z`,
     hairline: `
@@ -139,6 +141,7 @@ const HAIR = {
 
   Bun: {
     ears: true,
+    top: 58,
     extra: 'bun',
     back: DOME,
     hairline: `
@@ -149,22 +152,25 @@ const HAIR = {
 
   Ponytail: {
     ears: true,
+    top: 58,
     extra: 'ponytail',
     back: DOME,
     hairline: `
-      M 22 57 C 37 58, 51 52, 57 42 C 61 51, 69 57, 78 58`,
+      M 22 58 C 37 58, 51 52, 57 42 C 61 51, 69 57, 78 58`,
     close: NARROW,
   },
 
   Curly: {
     ears: false,
+    top: 63,
+    // symmetric ring of curls, generated round an ellipse
     back: `
-      M 19 44 Q 12 36, 23 32 Q 21 23, 32 25 Q 36 17, 44 23
-      Q 51 15, 58 23 Q 68 18, 72 27 Q 84 25, 83 36
-      Q 94 39, 88 48 Q 97 55, 89 63 Q 97 72, 88 78
-      Q 91 89, 80 91 Q 77 100, 67 95 L 33 95
-      Q 23 100, 20 91 Q 9 89, 12 78 Q 3 72, 11 63
-      Q 3 55, 12 48 Q 11 44, 19 44 Z`,
+      M 25.3 79.5 Q 16 79.4, 18.8 70.3 Q 10.1 67.3, 15.4 59.6
+      Q 8 54, 15.4 48.4 Q 10.1 40.7, 18.8 37.7 Q 16 28.6, 25.3 28.5
+      Q 25.3 19.1, 34.1 21.9 Q 37 12.9, 44.5 18.4 Q 50 10.8, 55.5 18.4
+      Q 63 12.9, 65.9 21.9 Q 74.7 19.1, 74.7 28.5 Q 84 28.6, 81.2 37.7
+      Q 89.9 40.7, 84.6 48.4 Q 92 54, 84.6 59.6 Q 89.9 67.3, 81.2 70.3
+      Q 84 79.4, 74.7 79.5 Z`,
     hairline: `
       M 22 63 Q 24 55, 30 57 Q 32 48, 39 52 Q 43 43, 50 49
       Q 56 42, 61 51 Q 69 47, 71 56 Q 77 54, 78 63`,
@@ -187,6 +193,7 @@ const HAIR = {
 
   Braids: {
     ears: false,
+    top: 59,
     extra: 'braids',
     back: DOME,
     hairline: `
@@ -198,7 +205,7 @@ const HAIR = {
     ears: false,
     chin: true,
     back: `
-      M 20 52 C 19 36, 32 24, 49 24 C 67 23, 80 36, 80 51
+      M 20 52 C 19 36, 32 24, 50 24 C 68 24, 81 36, 80 52
       Q 87 60, 82 69 Q 91 79, 84 88 C 90 100, 78 105, 69 101
       L 31 101 C 22 105, 10 100, 16 88 Q 9 79, 18 69
       Q 13 60, 20 52 Z`,
@@ -210,6 +217,7 @@ const HAIR = {
 
   'Short Smooth': {
     ears: true,
+    top: 61,
     back: `
       M 17 63 C 12 51, 17 34, 31 27 C 43 20, 60 21, 72 28
       C 84 35, 88 50, 83 63 L 78 73 L 22 73 Z`,
@@ -321,7 +329,7 @@ function AvatarFigure({ look, size = 28, outfit, sleeping = false }) {
 
       {/* 4. face */}
       <Path d={SHAPES.face} fill={skin} stroke="none" />
-      <Path d={HAIR[style].chin ? SHAPES.chin : SHAPES.cheeks} fill="none" {...OUTLINE} />
+      <Path d={HAIR[style].chin ? SHAPES.chin : SHAPES.cheeks(HAIR[style].top)} fill="none" {...OUTLINE} />
 
       {/* 5. front hair */}
       <HairFront style={style} hair={hair} />

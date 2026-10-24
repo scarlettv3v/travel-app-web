@@ -6,8 +6,8 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
+  Platform,
 } from 'react-native';
-import { colors } from './theme';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
 import {
@@ -16,8 +16,28 @@ import {
   EXPENSE_CATEGORIES,
   getExpenseCategory,
 } from './expenseOptions';
+import Popup from './Popup';
+import { P, ui, screenContent } from './ui';
 
 const money = n => Number(n).toFixed(2);
+const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
+
+// A row of pill buttons; `selected(id)` says which are on
+function Pills({ items, selected, onPress }) {
+  return (
+    <View style={ui.row}>
+      {items.map(([id, label]) => (
+        <TouchableOpacity
+          key={id}
+          onPress={() => onPress(id)}
+          style={[ui.pill, ui.pillSmall, selected(id) && ui.pillActive]}
+        >
+          <Text style={[ui.pillText, ui.pillTextSmall]}>{label}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
 
 export default function ExpensesScreen({ authToken, profile }) {
   const scrollRef = useRef(null);
@@ -389,320 +409,344 @@ export default function ExpensesScreen({ authToken, profile }) {
   const totalSpent = expenses.reduce((sum, e) => sum + e.amountBase, 0);
   const characterOf = name => members.find(m => m.name === name)?.character;
   const people = Object.keys(breakdown.byPerson);
+  const catRows = EXPENSE_CATEGORIES.filter(c => breakdown.catTotals[c.id]);
+
+  const memberItems = members.map(m => [m.name, m.name]);
 
   return (
-    <ScrollView
-      ref={scrollRef}
-      style={styles.container}
-      contentContainerStyle={{ padding: 15, paddingTop: 40 }}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.title}>💰 Trip Expenses</Text>
-      <Text style={[styles.hint, { textAlign: 'center' }]}>
-        Totals shown in {shownCurrency}
-      </Text>
+    <View style={ui.screen}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={screenContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Header + add button + form */}
+        <View style={ui.card}>
+          <View style={{ paddingRight: 44 }}>
+            <Text style={ui.kicker}>SPLIT THE LITTLE THINGS</Text>
+            <Text style={ui.h2}>Expenses</Text>
+            <Text style={ui.sub}>See what you spent and settle up together.</Text>
+          </View>
 
-      {showForm && (
-        <View style={[styles.card, editingId && { borderWidth: 1, borderColor: colors.highlight }]}>
-          <Text style={[styles.section, editingId && { color: colors.highlight }]}>
-            {editingId ? '✏️ Edit expense' : 'New expense'}
-          </Text>
-
-          <TextInput
-            style={styles.input}
-            placeholder="What was it for? (e.g. Petrol)"
-            placeholderTextColor={colors.textDim}
-            value={what}
-            onChangeText={setWhat}
-          />
-
-          <TextInput
-            style={styles.input}
-            placeholder="Amount"
-            placeholderTextColor={colors.textDim}
-            value={amount}
-            onChangeText={setAmount}
-            keyboardType="decimal-pad"
-          />
-
-          <Text style={styles.label}>Currency</Text>
-          <View style={styles.chipRow}>
-            {CURRENCIES.map(code => (
-              <TouchableOpacity
-                key={code}
-                style={[styles.pick, currency === code && styles.pickOn]}
-                onPress={() => setCurrency(code)}
-              >
-                <Text style={styles.chipText}>{code}</Text>
-              </TouchableOpacity>
+          <View style={[ui.row, { marginTop: 12 }]}>
+            {members.map(member => (
+              <View key={member.id} style={styles.person}>
+                <Avatar characterId={member.character} size={22} />
+                <Text style={[ui.pillText, ui.pillTextSmall, { marginLeft: 6 }]}>
+                  {member.name}
+                </Text>
+              </View>
             ))}
           </View>
 
-          {currency !== BASE_CURRENCY && (
-            <View>
-              <View style={styles.row}>
-                <Text style={[styles.hint, { marginTop: 0, marginRight: 8 }]}>
-                  1 {currency} =
-                </Text>
-                <TextInput
-                  style={[styles.input, { width: 100, marginBottom: 0 }]}
-                  value={rate}
-                  onChangeText={setRate}
-                  keyboardType="decimal-pad"
-                  placeholder="rate"
-                  placeholderTextColor={colors.textDim}
-                />
-                <Text style={[styles.hint, { marginTop: 0, marginLeft: 8 }]}>{BASE_CURRENCY}</Text>
-              </View>
-              {rateNote ? <Text style={styles.hint}>{rateNote}</Text> : null}
-              {previewBase > 0 ? (
-                <Text style={[styles.hint, { color: colors.success }]}>
-                  ≈ {BASE_CURRENCY} {money(previewBase)}
-                </Text>
-              ) : null}
+          {!showForm && (
+            <View style={[ui.row, { marginTop: 8 }]}>
+              <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={openForm}>
+                <Text style={ui.pillText}>+ Add expense</Text>
+              </TouchableOpacity>
             </View>
           )}
 
-          <Text style={styles.label}>Category</Text>
-          <View style={styles.chipRow}>
-            {EXPENSE_CATEGORIES.map(c => (
-              <TouchableOpacity
-                key={c.id}
-                style={[styles.pick, category === c.id && styles.pickOn]}
-                onPress={() => setCategory(c.id)}
-              >
-                <Text style={styles.chipText}>{c.emoji} {c.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.label}>Paid by</Text>
-          <View style={styles.chipRow}>
-            {members.map(member => (
-              <TouchableOpacity
-                key={member.id}
-                style={[styles.pick, payer === member.name && styles.pickOn]}
-                onPress={() => setPayer(member.name)}
-              >
-                <Text style={styles.chipText}>{member.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={styles.label}>Split between</Text>
-          <View style={styles.chipRow}>
-            {members.map(member => (
-              <TouchableOpacity
-                key={member.id}
-                style={[styles.pick, split.includes(member.name) && styles.pickOn]}
-                onPress={() => toggleSplit(member.name)}
-              >
-                <Text style={styles.chipText}>{member.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={styles.row}>
-            <TouchableOpacity
-              style={[styles.greenButton, { flex: 1, marginRight: 8 }]}
-              onPress={saveExpense}
-            >
-              <Text style={styles.buttonText}>
-                {editingId ? 'Save Changes' : 'Save Expense'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.redButton} onPress={closeForm}>
-              <Text style={styles.buttonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
         </View>
-      )}
 
-      <Text style={styles.section}>Who's on the trip</Text>
-      <View style={styles.chipRow}>
-        {members.map(member => (
-          <View key={member.id} style={styles.chip}>
-            <Avatar characterId={member.character} size={22} />
-            <Text style={[styles.chipText, { marginLeft: 6 }]}>{member.name}</Text>
-          </View>
-        ))}
-      </View>
+        {/* Total spent + settle up */}
+        <View style={ui.card}>
+          <Text style={ui.h3}>Total spent</Text>
 
-      <Text style={styles.section}>Show totals in</Text>
-      <View style={styles.chipRow}>
-        {CURRENCIES.map(code => (
-          <TouchableOpacity
-            key={code}
-            style={[styles.pick, displayCurrency === code && styles.pickOn]}
-            onPress={() => setDisplayCurrency(code)}
-          >
-            <Text style={styles.chipText}>{code}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      {displayNote ? <Text style={styles.hint}>{displayNote}</Text> : null}
+          <Text style={ui.label}>Show totals in</Text>
+          <Pills
+            items={CURRENCIES.map(code => [code, code])}
+            selected={id => displayCurrency === id}
+            onPress={setDisplayCurrency}
+          />
+          {displayNote ? <Text style={ui.hint}>{displayNote}</Text> : null}
 
-      <Text style={styles.section}>Who owes who</Text>
-      <View style={styles.card}>
-        {transfers.length === 0 ? (
-          <Text style={styles.hint}>
-            {expenses.length === 0 ? 'No expenses yet.' : 'All settled up! 🎉'}
-          </Text>
-        ) : (
-          transfers.map((transfer, index) => (
-            <Text key={index} style={styles.transferText}>
-              {transfer.from} owes {transfer.to}{' '}
-              <Text style={styles.amount}>
-                {shownCurrency} {show(transfer.amount)}
-              </Text>
+          <View style={styles.metric}>
+            <Text style={styles.metricText}>
+              {shownCurrency} {show(totalSpent)}
             </Text>
-          ))
-        )}
-        <Text style={styles.hint}>
-          Total spent: {shownCurrency} {show(totalSpent)}
-        </Text>
-      </View>
+          </View>
 
-      <Text style={styles.section}>Breakdown by person</Text>
-      <View style={styles.card}>
-        {people.length === 0 ? (
-          <Text style={styles.hint}>Add an expense to see the breakdown.</Text>
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View>
-              <View style={styles.tRow}>
-                <Text style={[styles.tCell, styles.tFirst, styles.tHead]}>Share</Text>
-                {EXPENSE_CATEGORIES.map(c => (
-                  <Text key={c.id} style={[styles.tCell, styles.tHead]}>{c.emoji}</Text>
-                ))}
-                <Text style={[styles.tCell, styles.tHead]}>Total</Text>
+          <View style={ui.panel}>
+            <Text style={ui.h3}>Who owes who</Text>
+            {transfers.length === 0 ? (
+              <View style={ui.notice}>
+                <Text style={ui.noticeText}>
+                  {expenses.length === 0 ? 'No balances to settle yet.' : 'Everyone is settled up! 🎉'}
+                </Text>
               </View>
+            ) : (
+              transfers.map((transfer, index) => (
+                <Text key={index} style={[ui.sub, { color: P.ink, marginTop: 8 }]}>
+                  {transfer.from} → {transfer.to}:{' '}
+                  <Text style={{ fontWeight: '800' }}>
+                    {shownCurrency} {show(transfer.amount)}
+                  </Text>
+                </Text>
+              ))
+            )}
+          </View>
 
-              {people.map(name => {
-                const row = breakdown.byPerson[name];
-                const total = Object.values(row).reduce((a, b) => a + b, 0);
-                return (
-                  <View key={name} style={styles.tRow}>
-                    <View style={[styles.tCell, styles.tFirst, { flexDirection: 'row', alignItems: 'center' }]}>
-                      <Avatar characterId={characterOf(name) || 'fox'} size={18} />
-                      <Text style={[styles.tText, { marginLeft: 4 }]} numberOfLines={1}>{name}</Text>
-                    </View>
+          <View style={ui.panel}>
+            <Text style={ui.h3}>By category</Text>
+            {catRows.length === 0 ? (
+              <View style={ui.notice}>
+                <Text style={ui.noticeText}>No categories yet.</Text>
+              </View>
+            ) : (
+              catRows.map(c => (
+                <Text key={c.id} style={[ui.sub, { color: P.ink, marginTop: 8 }]}>
+                  {c.emoji} {c.label} · {shownCurrency} {show(breakdown.catTotals[c.id])}
+                </Text>
+              ))
+            )}
+          </View>
+
+          <View style={ui.panel}>
+            <Text style={ui.h3}>By person</Text>
+            {people.length === 0 ? (
+              <View style={ui.notice}>
+                <Text style={ui.noticeText}>Add an expense to see the breakdown.</Text>
+              </View>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                <View>
+                  <View style={styles.tRow}>
+                    <Text style={[styles.tCell, styles.tFirst, styles.tHead]}>Share</Text>
                     {EXPENSE_CATEGORIES.map(c => (
-                      <Text key={c.id} style={[styles.tCell, styles.tText]}>
-                        {row[c.id] ? show(row[c.id]) : '–'}
+                      <Text key={c.id} style={[styles.tCell, styles.tHead]}>{c.emoji}</Text>
+                    ))}
+                    <Text style={[styles.tCell, styles.tHead]}>Total</Text>
+                  </View>
+
+                  {people.map(name => {
+                    const row = breakdown.byPerson[name];
+                    const total = Object.values(row).reduce((a, b) => a + b, 0);
+                    return (
+                      <View key={name} style={styles.tRow}>
+                        <View style={[styles.tCell, styles.tFirst, { flexDirection: 'row', alignItems: 'center' }]}>
+                          <Avatar characterId={characterOf(name) || 'fox'} size={18} />
+                          <Text style={[styles.tText, { marginLeft: 4 }]} numberOfLines={1}>{name}</Text>
+                        </View>
+                        {EXPENSE_CATEGORIES.map(c => (
+                          <Text key={c.id} style={[styles.tCell, styles.tText]}>
+                            {row[c.id] ? show(row[c.id]) : '–'}
+                          </Text>
+                        ))}
+                        <Text style={[styles.tCell, styles.tText, styles.tBold]}>{show(total)}</Text>
+                      </View>
+                    );
+                  })}
+
+                  <View style={[styles.tRow, styles.tTotalRow]}>
+                    <Text style={[styles.tCell, styles.tFirst, styles.tText, styles.tBold]}>Everyone</Text>
+                    {EXPENSE_CATEGORIES.map(c => (
+                      <Text key={c.id} style={[styles.tCell, styles.tText, styles.tBold]}>
+                        {breakdown.catTotals[c.id] ? show(breakdown.catTotals[c.id]) : '–'}
                       </Text>
                     ))}
-                    <Text style={[styles.tCell, styles.tText, styles.tBold]}>{show(total)}</Text>
+                    <Text style={[styles.tCell, styles.tText, styles.tBold]}>{show(breakdown.grand)}</Text>
                   </View>
-                );
-              })}
-
-              <View style={[styles.tRow, styles.tTotalRow]}>
-                <Text style={[styles.tCell, styles.tFirst, styles.tText, styles.tBold]}>Everyone</Text>
-                {EXPENSE_CATEGORIES.map(c => (
-                  <Text key={c.id} style={[styles.tCell, styles.tText, styles.tBold]}>
-                    {breakdown.catTotals[c.id] ? show(breakdown.catTotals[c.id]) : '–'}
-                  </Text>
-                ))}
-                <Text style={[styles.tCell, styles.tText, styles.tBold]}>{show(breakdown.grand)}</Text>
-              </View>
-            </View>
-          </ScrollView>
-        )}
-        <Text style={styles.hint}>
-          Each person's share of the cost, not what they paid. 🍽️ food, 🚗 transport, 🏨 stay, 🎯 activity, 🛍️ shopping, 📦 other.
-        </Text>
-      </View>
-
-      {!showForm && (
-        <TouchableOpacity style={[styles.blueButton, { marginVertical: 10 }]} onPress={openForm}>
-          <Text style={styles.buttonText}>+ Add Expense</Text>
-        </TouchableOpacity>
-      )}
-
-      <Text style={styles.section}>All expenses ({expenses.length})</Text>
-
-      {expenses.map(expense => (
-        <View key={expense.id} style={styles.card}>
-          <View style={styles.rowBetween}>
-            <Text style={styles.expenseTitle}>
-              {getExpenseCategory(expense.category).emoji} {expense.what}
+                </View>
+              </ScrollView>
+            )}
+            <Text style={ui.hint}>
+              Each person's share of the cost, not what they paid. 🍽️ food, 🚗 transport, 🏨 stay, 🎯 activity, 🛍️ shopping, 📦 other.
             </Text>
-            <Text style={styles.amount}>
-              {expense.currency} {money(expense.amount)}
-            </Text>
-          </View>
-
-          {expense.currency !== BASE_CURRENCY ? (
-            <Text style={styles.hint}>
-              ≈ {BASE_CURRENCY} {money(expense.amountBase)} (rate {expense.rate})
-            </Text>
-          ) : null}
-
-          <Text style={styles.hint}>
-            Paid by {expense.payer} · split {expense.split.length} ways
-            {expense.split.length ? ` (${expense.split.join(', ')})` : ''}
-          </Text>
-
-          {expense.addedByCharacter ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-              <Avatar characterId={expense.addedByCharacter} size={22} />
-              <Text style={[styles.hint, { marginTop: 0, marginLeft: 6 }]}>
-                Added by {expense.addedByName}
-              </Text>
-            </View>
-          ) : null}
-
-          <View style={{ flexDirection: 'row', marginTop: 8 }}>
-            <TouchableOpacity
-              style={[styles.editButton, { marginRight: 8 }]}
-              onPress={() => startEdit(expense)}
-            >
-              <Text style={styles.buttonText}>✏️ Edit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.redButton}
-              onPress={() => deleteExpense(expense.id)}
-            >
-              <Text style={styles.buttonText}>🗑️ Delete</Text>
-            </TouchableOpacity>
           </View>
         </View>
-      ))}
 
-      <View style={{ height: 30 }} />
-    </ScrollView>
+        {/* All expenses */}
+        <View style={ui.card}>
+          <Text style={ui.h3}>All expenses ({expenses.length})</Text>
+
+          {expenses.length === 0 && (
+            <View style={ui.notice}>
+              <Text style={ui.noticeText}>
+                No expenses yet. Add one above to start splitting costs.
+              </Text>
+            </View>
+          )}
+
+          {expenses.map(expense => (
+            <View key={expense.id} style={ui.listCard}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={[ui.strong, { flex: 1, marginRight: 8 }]}>
+                  {getExpenseCategory(expense.category).emoji} {expense.what}
+                </Text>
+                <Text style={[ui.strong, { fontFamily: MONO }]}>
+                  {expense.currency} {money(expense.amount)}
+                </Text>
+              </View>
+
+              {expense.currency !== BASE_CURRENCY ? (
+                <Text style={ui.sub}>
+                  ≈ {BASE_CURRENCY} {money(expense.amountBase)} (rate {expense.rate})
+                </Text>
+              ) : null}
+
+              <Text style={ui.sub}>
+                Paid by {expense.payer} · split {expense.split.length} ways
+                {expense.split.length ? ` (${expense.split.join(', ')})` : ''}
+              </Text>
+
+              {expense.addedByCharacter ? (
+                <View style={ui.byRow}>
+                  <Avatar characterId={expense.addedByCharacter} size={22} />
+                  <Text style={[ui.sub, { marginTop: 0, marginLeft: 8 }]}>
+                    Added by {expense.addedByName}
+                  </Text>
+                </View>
+              ) : null}
+
+              <View style={[ui.row, { marginTop: 12 }]}>
+                <TouchableOpacity
+                  style={[ui.pill, ui.pillSmall]}
+                  onPress={() => startEdit(expense)}
+                >
+                  <Text style={[ui.pillText, ui.pillTextSmall]}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[ui.pill, ui.pillSmall, ui.pillDanger]}
+                  onPress={() => deleteExpense(expense.id)}
+                >
+                  <Text style={[ui.pillText, ui.pillTextSmall, ui.pillDangerText]}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+
+      {/* Add / edit popup */}
+      <Popup visible={showForm} onClose={closeForm}>
+        <View>
+              <Text style={ui.kicker}>EXPENSE</Text>
+              <Text style={ui.h2}>{editingId ? 'Edit expense' : 'Add expense'}</Text>
+
+              <Text style={ui.label}>Description</Text>
+              <TextInput
+                style={ui.field}
+                placeholder="What was it for? (e.g. Petrol)"
+                placeholderTextColor="#8a9ca6"
+                value={what}
+                onChangeText={setWhat}
+              />
+
+              <Text style={ui.label}>Amount</Text>
+              <TextInput
+                style={ui.field}
+                placeholder="0.00"
+                placeholderTextColor="#8a9ca6"
+                value={amount}
+                onChangeText={setAmount}
+                keyboardType="decimal-pad"
+              />
+
+              <Text style={ui.label}>Currency</Text>
+              <Pills
+                items={CURRENCIES.map(code => [code, code])}
+                selected={id => currency === id}
+                onPress={setCurrency}
+              />
+
+              {currency !== BASE_CURRENCY && (
+                <View>
+                  <View style={[ui.row, { marginTop: 4 }]}>
+                    <Text style={[ui.sub, { marginTop: 0, marginRight: 8 }]}>1 {currency} =</Text>
+                    <TextInput
+                      style={[ui.field, { width: 110 }]}
+                      value={rate}
+                      onChangeText={setRate}
+                      keyboardType="decimal-pad"
+                      placeholder="rate"
+                      placeholderTextColor="#8a9ca6"
+                    />
+                    <Text style={[ui.sub, { marginTop: 0, marginLeft: 8 }]}>{BASE_CURRENCY}</Text>
+                  </View>
+                  {rateNote ? <Text style={ui.hint}>{rateNote}</Text> : null}
+                  {previewBase > 0 ? (
+                    <Text style={[ui.hint, { color: P.ink, fontWeight: '800' }]}>
+                      ≈ {BASE_CURRENCY} {money(previewBase)}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+
+              <Text style={ui.label}>Category</Text>
+              <Pills
+                items={EXPENSE_CATEGORIES.map(c => [c.id, `${c.emoji} ${c.label}`])}
+                selected={id => category === id}
+                onPress={setCategory}
+              />
+
+              <Text style={ui.label}>Paid by</Text>
+              <Pills
+                items={memberItems}
+                selected={id => payer === id}
+                onPress={setPayer}
+              />
+
+              <Text style={ui.label}>Split between</Text>
+              <View style={ui.row}>
+                {members.map(member => {
+                  const on = split.includes(member.name);
+                  return (
+                    <TouchableOpacity
+                      key={member.id}
+                      onPress={() => toggleSplit(member.name)}
+                      style={[ui.pill, ui.pillSmall, on && ui.pillActive]}
+                    >
+                      <Text style={[ui.pillText, ui.pillTextSmall]}>
+                        {on ? '✓ ' : ''}{member.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={[ui.row, { marginTop: 14 }]}>
+                <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={saveExpense}>
+                  <Text style={ui.pillText}>{editingId ? 'Save changes' : 'Save expense'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={ui.pill} onPress={closeForm}>
+                  <Text style={ui.pillText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+        </View>
+      </Popup>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  title: { fontSize: 22, fontWeight: 'bold', color: colors.text, textAlign: 'center', marginBottom: 4 },
-  section: { color: colors.text, fontSize: 16, fontWeight: 'bold', marginTop: 14, marginBottom: 8 },
-  label: { color: colors.textMuted, fontSize: 13, marginTop: 6, marginBottom: 6 },
-  hint: { color: colors.textMuted, fontSize: 13, marginTop: 4 },
-  row: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
-  rowBetween: { flexDirection: 'row', justifyContent: 'space-between' },
-  card: { backgroundColor: colors.card, padding: 12, borderRadius: 8, marginBottom: 10 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap' },
-  chip: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 6, marginBottom: 6 },
-  pick: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 6, marginBottom: 6, borderWidth: 1, borderColor: colors.input },
-  pickOn: { backgroundColor: '#2d6a4f', borderColor: colors.success },
-  chipText: { color: colors.text, fontSize: 14 },
-  input: { backgroundColor: colors.input, color: colors.text, padding: 12, borderRadius: 8, fontSize: 14, marginBottom: 8 },
-  blueButton: { backgroundColor: colors.primary, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, alignItems: 'center' },
-  greenButton: { backgroundColor: colors.success, padding: 12, borderRadius: 8, alignItems: 'center' },
-  redButton: { backgroundColor: colors.danger, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' },
-  editButton: { backgroundColor: colors.warning, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, alignItems: 'center' },
-  buttonText: { color: colors.text, fontWeight: 'bold', fontSize: 14 },
-  transferText: { color: colors.text, fontSize: 15, marginBottom: 6 },
-  amount: { color: colors.success, fontWeight: 'bold', fontSize: 15 },
-  expenseTitle: { color: colors.text, fontSize: 15, fontWeight: 'bold', flex: 1, marginRight: 8 },
-  tRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border },
-  tTotalRow: { borderBottomWidth: 0, borderTopWidth: 1, borderTopColor: colors.textDim },
+  person: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#9dbcae',
+    borderRadius: 999,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  metric: {
+    backgroundColor: P.panel,
+    borderWidth: 2,
+    borderColor: P.ink,
+    borderRadius: 17,
+    padding: 14,
+    marginTop: 14,
+  },
+  metricText: { color: P.ink, fontSize: 30, fontWeight: '800', fontFamily: MONO },
+
+  tRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: P.fieldBorder },
+  tTotalRow: { borderBottomWidth: 0, borderTopWidth: 1, borderTopColor: P.ink },
   tCell: { width: 62, textAlign: 'right', paddingHorizontal: 2 },
   tFirst: { width: 100, textAlign: 'left' },
-  tHead: { color: colors.textMuted, fontSize: 14 },
-  tText: { color: colors.text, fontSize: 13 },
-  tBold: { fontWeight: 'bold' },
+  tHead: { color: P.muted, fontSize: 14, fontWeight: '800' },
+  tText: { color: P.ink, fontSize: 13 },
+  tBold: { fontWeight: '800' },
 });

@@ -1,40 +1,24 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  Text,
-  View,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  Modal,
-  ScrollView,
-  ActivityIndicator,
-} from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { Text, View, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { colors } from './theme';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import { CATEGORIES } from './categories';
 import { readTextFromImage, ocrEnabled } from './ocr';
-import { openInGoogleMaps } from './maps';
+import { openPlace } from './places';
+import { P, ui } from './ui';
 
 const URL_RE = /https?:\/\/[^\s]+/i;
+const MAPS_LINK_RE = /google\.[a-z.]+\/maps|maps\.google|maps\.app\.goo\.gl|goo\.gl\/maps/i;
 
-function parseMapsUrl(url) {
-  const m =
-    url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ||
-    url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) ||
-    url.match(/[?&](?:q|query|ll|center)=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/);
-  const coords = m ? { lat: parseFloat(m[1]), lng: parseFloat(m[2]) } : null;
-
+// The place name inside a long Google Maps link (…/place/Some+Name/…)
+function placeNameFromUrl(url) {
   const p = url.match(/\/place\/([^/@?]+)/);
-  let name = '';
-  if (p) {
-    try {
-      name = decodeURIComponent(p[1].replace(/\+/g, ' '));
-    } catch (e) {
-      name = p[1].replace(/\+/g, ' ');
-    }
+  if (!p) return '';
+  try {
+    return decodeURIComponent(p[1].replace(/\+/g, ' '));
+  } catch (e) {
+    return p[1].replace(/\+/g, ' ');
   }
-  return { coords, name };
 }
 
 function guessNameFromText(text) {
@@ -89,19 +73,8 @@ async function youtubeInfo(url) {
   return null;
 }
 
-async function searchPlaces(query) {
-  const q = /new zealand|\bnz\b/i.test(query) ? query : `${query}, New Zealand`;
-  const res = await fetch(
-    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5`
-  );
-  return res.json();
-}
-
-const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-
+// Sits inside the "Add new spot" popup, so there is no popup frame here.
 export default function ImportSpot({ visible, authToken, profile, onClose, onSaved }) {
-  const cancelled = useRef(false);
-
   const [step, setStep] = useState('input'); // input | pick | review
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -113,7 +86,6 @@ export default function ImportSpot({ visible, authToken, profile, onClose, onSav
 
   useEffect(() => {
     if (visible) {
-      cancelled.current = false;
       setStep('input');
       setInput('');
       setMsg('');
@@ -122,17 +94,19 @@ export default function ImportSpot({ visible, authToken, profile, onClose, onSav
       setItems([]);
       setBusy(false);
       setScanning(false);
-    } else {
-      cancelled.current = true;
     }
   }, [visible]);
 
   const patchItem = (key, patch) =>
-    setItems(prev =>
-      prev.map(it =>
-        it.key === key ? { ...it, ...(typeof patch === 'function' ? patch(it) : patch) } : it
-      )
-    );
+    setItems(prev => prev.map(it => (it.key === key ? { ...it, ...patch } : it)));
+
+  const newItem = (key, name, note) => ({
+    key,
+    name,
+    note,
+    address: '',
+    category: 'spot',
+  });
 
   const pickScreenshot = async () => {
     try {
@@ -161,7 +135,7 @@ export default function ImportSpot({ visible, authToken, profile, onClose, onSav
     }
   };
 
-  // Step 1 -> reads the pasted text and either shows the tick list or goes straight to review
+  // Step 1 -> reads the pasted text and shows the tick list (or goes straight to review)
   const read = async () => {
     const raw = input.trim();
     if (!raw) return;
@@ -171,43 +145,28 @@ export default function ImportSpot({ visible, authToken, profile, onClose, onSav
 
     const urlMatch = raw.match(URL_RE);
     const source = urlMatch ? urlMatch[0] : '';
-    let url = source;
     const text = raw.replace(URL_RE, '').trim();
 
     let guess = '';
     let noteText = '';
-    let found = null;
-    let label = '';
     let message = '';
+    const isMapsLink = !!source && MAPS_LINK_RE.test(source);
 
     try {
-      if (url && /maps\.app\.goo\.gl|goo\.gl\/maps/i.test(url)) {
-        try {
-          const r = await fetch(url);
-          if (r.url) url = r.url;
-        } catch (e) {
-          // short link could not be opened (common on web)
+      if (isMapsLink) {
+        guess = placeNameFromUrl(source);
+        if (!guess) {
+          message = 'Could not read a place name from that link. Type the name below.';
         }
-      }
-
-      if (url && /google\.[a-z.]+\/maps|maps\.google/i.test(url)) {
-        const parsed = parseMapsUrl(url);
-        guess = parsed.name;
-        if (parsed.coords) {
-          found = parsed.coords;
-          label = 'Location from your Google Maps link';
-        } else {
-          message = 'Could not read the location from that link. Search for it below.';
-        }
-      } else if (url && /youtu\.be|youtube\.com/i.test(url)) {
-        const info = await youtubeInfo(url);
+      } else if (source && /youtu\.be|youtube\.com/i.test(source)) {
+        const info = await youtubeInfo(source);
         if (info) {
           guess = info.title.split(/[|–—-]/)[0].trim();
           noteText = `${info.title}${info.author ? ' (' + info.author + ')' : ''}`;
         } else {
           message = 'Could not read the YouTube title. Type the place name below.';
         }
-      } else if (url && /instagram\.com/i.test(url) && !text) {
+      } else if (source && /instagram\.com/i.test(source) && !text) {
         message = 'Instagram links cannot be read. Choose a screenshot, or paste the caption.';
       }
     } finally {
@@ -219,27 +178,23 @@ export default function ImportSpot({ visible, authToken, profile, onClose, onSav
     const note = [noteText, source ? `Source: ${source}` : ''].filter(Boolean).join('\n');
     setSourceNote(note);
 
-    if (found) {
-      setItems([
-        {
-          key: 'maps-0',
-          name: guess,
-          note,
-          category: 'spot',
-          coords: found,
-          label,
-          results: [],
-          showResults: false,
-          status: 'done',
-        },
-      ]);
-      setMsg(message);
+    // a Google Maps link with a place name: go straight to the check step
+    if (isMapsLink && guess) {
+      setItems([newItem('maps-0', guess, note)]);
+      setMsg('');
       setStep('review');
       return;
     }
 
     const list = buildLines(text, guess);
     if (!list.length) {
+      if (source) {
+        // nothing readable, but keep the link: let them type the name
+        setItems([newItem('link-0', '', note)]);
+        setMsg(message || 'Type the place name below.');
+        setStep('review');
+        return;
+      }
       setMsg(message || 'Nothing readable found. Type or paste the place names.');
       return;
     }
@@ -254,419 +209,298 @@ export default function ImportSpot({ visible, authToken, profile, onClose, onSav
 
   const setAllLines = on => setLines(prev => prev.map(l => ({ ...l, on })));
 
-  // Searches one item. "auto" picks the top match straight away.
-  const searchItem = async (key, query, auto) => {
-    if (!query.trim()) return;
-    patchItem(key, { status: 'searching' });
-
-    try {
-      const data = await searchPlaces(query.trim());
-      if (cancelled.current) return;
-
-      patchItem(key, it => {
-        const patch = {
-          results: data,
-          status: data.length ? 'done' : 'none',
-          showResults: !auto && data.length > 0,
-        };
-        if (auto && !it.coords && data.length) {
-          patch.coords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-          patch.label = data[0].display_name;
-        }
-        return patch;
-      });
-    } catch (error) {
-      patchItem(key, { status: 'error' });
-    }
-  };
-
-  // Step 2 -> builds a card for every ticked line, then searches them one by one
-  const startSearch = async () => {
+  // Step 2 -> one card for every ticked line
+  const goReview = () => {
     const chosen = lines.filter(l => l.on);
     if (!chosen.length) {
       setMsg('Tick at least one line first.');
       return;
     }
-
     const base = Date.now();
-    const fresh = chosen.map((l, i) => ({
-      key: `${base}-${i}`,
-      name: l.text,
-      note: sourceNote,
-      category: 'spot',
-      coords: null,
-      label: '',
-      results: [],
-      showResults: false,
-      status: 'waiting',
-    }));
-
-    setItems(fresh);
+    setItems(chosen.map((l, i) => newItem(`${base}-${i}`, l.text, sourceNote)));
     setMsg('');
     setStep('review');
-
-    // The free map service allows about one search per second
-    for (let i = 0; i < fresh.length; i++) {
-      if (cancelled.current) return;
-      await searchItem(fresh[i].key, fresh[i].name, true);
-      if (i < fresh.length - 1) await wait(1100);
-    }
   };
-
-  const pickResult = (key, r) =>
-    patchItem(key, {
-      coords: { lat: parseFloat(r.lat), lng: parseFloat(r.lon) },
-      label: r.display_name,
-      showResults: false,
-    });
 
   const removeItem = key => setItems(prev => prev.filter(it => it.key !== key));
 
-  
-const confirmAll = async () => {
-  const ready = items.filter(it => it.name.trim());
+  const confirmAll = async () => {
+    const ready = items.filter(it => it.name.trim());
 
-  if (!ready.length) {
-    alert('Please enter a name for at least one spot.');
-    return;
-  }
-
-  setBusy(true);
-
-  try {
-    await Promise.all(
-      ready.map(it =>
-        firestoreFetch(`${FIRESTORE_BASE}/spots`, authToken, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fields: {
-              name: { stringValue: it.name.trim() },
-              note: { stringValue: it.note || '' },
-              ...(it.coords
-                ? {
-                    lat: { doubleValue: it.coords.lat },
-                    lng: { doubleValue: it.coords.lng },
-                  }
-                : {}),
-              category: { stringValue: it.category },
-              createdByName: { stringValue: profile.name },
-              createdByCharacter: {
-                stringValue: profile.character,
-              },
-            },
-          }),
-        })
-      )
-    );
-
-    onSaved();
-
-    const left = items.filter(it => !it.name.trim());
-
-    if (left.length === 0) {
-      onClose();
-    } else {
-      setItems(left);
-      setMsg(
-        `${ready.length} saved. ${left.length} still need a name.`
-      );
+    if (!ready.length) {
+      alert('Please enter a name for at least one spot.');
+      return;
     }
-  } catch (error) {
-    console.error('Error importing spots:', error);
-    alert('Could not save the spots.');
-  } finally {
-    setBusy(false);
-  }
-};
 
-  const searchingCount = items.filter(it => it.status === 'searching' || it.status === 'waiting').length;
+    setBusy(true);
+
+    try {
+      await Promise.all(
+        ready.map(it =>
+          firestoreFetch(`${FIRESTORE_BASE}/spots`, authToken, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fields: {
+                name: { stringValue: it.name.trim() },
+                note: { stringValue: it.note || '' },
+                address: { stringValue: (it.address || '').trim() },
+                category: { stringValue: it.category },
+                createdByName: { stringValue: profile.name },
+                createdByCharacter: { stringValue: profile.character },
+              },
+            }),
+          })
+        )
+      );
+
+      onSaved();
+
+      const left = items.filter(it => !it.name.trim());
+
+      if (left.length === 0) {
+        onClose();
+      } else {
+        setItems(left);
+        setMsg(`${ready.length} saved. ${left.length} still need a name.`);
+      }
+    } catch (error) {
+      console.error('Error importing spots:', error);
+      alert('Could not save the spots.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const readyCount = items.filter(it => it.name.trim()).length;
   const tickedCount = lines.filter(l => l.on).length;
 
+  const warning = text => (
+    <View style={[ui.notice, ui.noticeWarn]}>
+      <Text style={ui.noticeText}>{text}</Text>
+    </View>
+  );
+
+  const smallPill = (label, onPress) => (
+    <TouchableOpacity style={[ui.pill, ui.pillSmall]} onPress={onPress}>
+      <Text style={[ui.pillText, ui.pillTextSmall]}>{label}</Text>
+    </TouchableOpacity>
+  );
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-       
-<ScrollView
-  contentContainerStyle={{ padding: 15, paddingTop: 60, paddingBottom: 40 }}
-  keyboardShouldPersistTaps="handled"
-  keyboardDismissMode="on-drag"
->
+    <View>
+      {step === 'input' && (
+        <View>
+          <Text style={ui.h3}>Import from link / caption</Text>
+          <Text style={ui.sub}>
+            Choose a screenshot, or paste a YouTube link, a Google Maps link, or a caption. One
+            screenshot can hold many spots, and you tick the ones you want.
+          </Text>
 
-          <View style={styles.card}>
-            {step === 'input' && (
-              <View>
-                <Text style={styles.title}>🔗 Import spots</Text>
-                <Text style={styles.hint}>
-                  Choose a screenshot, or paste a YouTube link, a Google Maps link, or a caption.
-                  One screenshot can hold many spots, and you tick the ones you want.
+          {ocrEnabled ? (
+            <View style={[ui.row, { marginTop: 14 }]}>
+              <TouchableOpacity
+                style={[ui.pill, ui.pillPrimary, scanning && styles.dim]}
+                onPress={pickScreenshot}
+                disabled={scanning}
+              >
+                <Text style={ui.pillText}>
+                  {scanning ? 'Reading screenshot...' : '📷 Choose a screenshot'}
                 </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+          {msg ? warning(msg) : null}
 
-                {ocrEnabled ? (
-                  <TouchableOpacity style={styles.photoBtn} onPress={pickScreenshot} disabled={scanning}>
-                    <Text style={styles.btnText}>
-                      {scanning ? 'Reading screenshot...' : '📷 Choose a screenshot'}
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
-                {msg ? <Text style={styles.warn}>{msg}</Text> : null}
+          <Text style={ui.label}>Link or caption</Text>
+          <TextInput
+            style={[ui.field, { height: 130, textAlignVertical: 'top' }]}
+            placeholder="Paste link or caption here, or add a screenshot..."
+            placeholderTextColor="#8a9ca6"
+            value={input}
+            onChangeText={setInput}
+            multiline
+            autoCapitalize="none"
+          />
 
-                <TextInput
-                  style={[styles.input, { height: 130, textAlignVertical: 'top' }]}
-                  placeholder="Paste link or caption here, or add a screenshot..."
-                  placeholderTextColor={colors.textDim}
-                  value={input}
-                  onChangeText={setInput}
-                  multiline
-                  autoCapitalize="none"
-                />
+          <Text style={ui.hint}>
+            Add several screenshots one after another, and the text is added together. You can edit
+            the text before tapping Read it.
+          </Text>
 
-                <Text style={styles.tip}>
-                  Add several screenshots one after another, and the text is added together.
-                  You can edit the text before tapping Read it.
-                </Text>
-
-                <View style={{ flexDirection: 'row', marginTop: 10 }}>
-                  <TouchableOpacity
-                    style={[styles.greenBtn, { flex: 1, marginRight: 8 }]}
-                    onPress={read}
-                    disabled={busy}
-                  >
-                    <Text style={styles.btnText}>{busy ? 'Reading...' : 'Read it'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.redBtn} onPress={onClose}>
-                    <Text style={styles.btnText}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            {step === 'pick' && (
-              <View>
-                <Text style={styles.title}>Which lines are places?</Text>
-                <Text style={styles.hint}>
-                  Tick every line that is a place name. Untick anything else.
-                </Text>
-                {msg ? <Text style={styles.warn}>{msg}</Text> : null}
-
-                <View style={{ flexDirection: 'row', marginBottom: 8 }}>
-                  <TouchableOpacity style={[styles.greyBtn, { marginRight: 8 }]} onPress={() => setAllLines(true)}>
-                    <Text style={styles.btnText}>Tick all</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.greyBtn} onPress={() => setAllLines(false)}>
-                    <Text style={styles.btnText}>Untick all</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {lines.map((l, i) => (
-                  <TouchableOpacity
-                    key={i}
-                    style={[styles.lineRow, l.on && styles.lineRowOn]}
-                    onPress={() => toggleLine(i)}
-                  >
-                    <Text style={styles.lineBox}>{l.on ? '☑' : '☐'}</Text>
-                    <Text style={styles.lineText}>{l.text}</Text>
-                  </TouchableOpacity>
-                ))}
-
-                <View style={{ flexDirection: 'row', marginTop: 12 }}>
-                  <TouchableOpacity
-                    style={[styles.greenBtn, { flex: 1, marginRight: 8 }]}
-                    onPress={startSearch}
-                  >
-                    <Text style={styles.btnText}>Find {tickedCount} place{tickedCount === 1 ? '' : 's'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.greyBtn, { marginRight: 8 }]} onPress={() => setStep('input')}>
-                    <Text style={styles.btnText}>Back</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.redBtn} onPress={onClose}>
-                    <Text style={styles.btnText}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            {step === 'review' && (
-              <View>
-                <Text style={styles.title}>Check before saving</Text>
-                {searchingCount > 0 ? (
-                  <Text style={styles.hint}>
-                    Searching the map... {items.length - searchingCount} of {items.length} done
-                  </Text>
-                ) : (
-                  <Text style={styles.hint}>
-                    Check each spot, then save. The top map match is picked for you.
-                  </Text>
-                )}
-                {msg ? <Text style={styles.warn}>{msg}</Text> : null}
-
-                {items.map(it => (
-                  <View key={it.key} style={styles.itemCard}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <TextInput
-                        style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                        value={it.name}
-                        onChangeText={t => patchItem(it.key, { name: t })}
-                        placeholder="Name of the place"
-                        placeholderTextColor={colors.textDim}
-                      />
-                      <TouchableOpacity style={styles.removeBtn} onPress={() => removeItem(it.key)}>
-                        <Text style={styles.btnText}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {(it.status === 'searching' || it.status === 'waiting') && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
-                        <ActivityIndicator color={colors.primary} />
-                        <Text style={[styles.hint, { marginLeft: 8, marginBottom: 0 }]}>
-                          {it.status === 'waiting' ? 'Waiting...' : 'Searching...'}
-                        </Text>
-                      </View>
-                    )}
-
-                    {it.coords ? (
-                      <Text style={styles.ok} numberOfLines={2}>✅ {it.label || 'Location chosen'}</Text>
-                    ) : it.status === 'none' ? (
-                      <Text style={styles.warn}>No map match. Edit the name and tap Search again.</Text>
-                    ) : it.status === 'error' ? (
-                      <Text style={styles.warn}>Search failed. Tap Search to retry.</Text>
-                    ) : null}
-
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 }}>
-                      {it.coords ? (
-                        <TouchableOpacity
-                          style={styles.gmapBtn}
-                          onPress={() => openInGoogleMaps(it.coords.lat, it.coords.lng, it.name)}
-                        >
-                          <Text style={styles.smallText}>🔎 Google Maps</Text>
-                        </TouchableOpacity>
-                      ) : null}
-                      <TouchableOpacity
-                        style={styles.smallBtn}
-                        onPress={() => searchItem(it.key, it.name, false)}
-                      >
-                        <Text style={styles.smallText}>Search</Text>
-                      </TouchableOpacity>
-                      {it.results.length > 0 && !it.showResults ? (
-                        <TouchableOpacity
-                          style={styles.smallBtn}
-                          onPress={() => patchItem(it.key, { showResults: true })}
-                        >
-                          <Text style={styles.smallText}>Other matches</Text>
-                        </TouchableOpacity>
-                      ) : null}
-                    </View>
-
-                    {it.showResults &&
-                      it.results.map((r, i) => (
-                        <View key={i} style={styles.result}>
-                          <TouchableOpacity style={{ flex: 1 }} onPress={() => pickResult(it.key, r)}>
-                            <Text style={styles.resultTitle}>{r.display_name.split(',')[0]}</Text>
-                            <Text style={styles.resultSub} numberOfLines={1}>{r.display_name}</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.gmapBtn}
-                            onPress={() =>
-                              openInGoogleMaps(
-                                parseFloat(r.lat),
-                                parseFloat(r.lon),
-                                r.display_name.split(',')[0]
-                              )
-                            }
-                          >
-                            <Text style={styles.smallText}>🔎</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-
-                    <Text style={styles.label}>Category</Text>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                      {CATEGORIES.map(c => (
-                        <TouchableOpacity
-                          key={c.id}
-                          style={[styles.chip, it.category === c.id && styles.chipOn]}
-                          onPress={() => patchItem(it.key, { category: c.id })}
-                        >
-                          <Text style={styles.chipText}>{c.emoji} {c.label}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-
-                    <TextInput
-                      style={[styles.input, { height: 60, textAlignVertical: 'top', marginTop: 4, marginBottom: 0 }]}
-                      value={it.note}
-                      onChangeText={t => patchItem(it.key, { note: t })}
-                      multiline
-                      placeholder="Notes (optional)"
-                      placeholderTextColor={colors.textDim}
-                    />
-                  </View>
-                ))}
-
-                {items.length === 0 && (
-                  <Text style={styles.hint}>No spots left. Tap Back to start again.</Text>
-                )}
-
-                <View style={{ flexDirection: 'row', marginTop: 12 }}>
-                  <TouchableOpacity
-                    style={[styles.greenBtn, { flex: 1, marginRight: 8 }]}
-                    onPress={confirmAll}
-                   disabled={busy || readyCount === 0 || searchingCount > 0}
-                  >
-                    <Text style={styles.btnText}>
-                      {busy ? 'Saving...' : `Save ${readyCount} spot${readyCount === 1 ? '' : 's'}`}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.greyBtn, { marginRight: 8 }]}
-                    onPress={() => {
-                      setStep(lines.length ? 'pick' : 'input');
-                    }}
-                  >
-                    <Text style={styles.btnText}>Back</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.redBtn} onPress={onClose}>
-                    <Text style={styles.btnText}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
+          <View style={[ui.row, { marginTop: 14 }]}>
+            <TouchableOpacity
+              style={[ui.pill, ui.pillPrimary, busy && styles.dim]}
+              onPress={read}
+              disabled={busy}
+            >
+              <Text style={ui.pillText}>{busy ? 'Reading...' : 'Read it'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={ui.pill} onPress={onClose}>
+              <Text style={ui.pillText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
-        </ScrollView>
-      </View>
-    </Modal>
+        </View>
+      )}
+
+      {step === 'pick' && (
+        <View>
+          <Text style={ui.kicker}>STEP 2</Text>
+          <Text style={ui.h2}>Which lines are places?</Text>
+          <Text style={ui.sub}>Tick every line that is a place name. Untick anything else.</Text>
+          {msg ? warning(msg) : null}
+
+          <View style={[ui.row, { marginTop: 12 }]}>
+            {smallPill('Tick all', () => setAllLines(true))}
+            {smallPill('Untick all', () => setAllLines(false))}
+          </View>
+
+          {lines.map((l, i) => (
+            <TouchableOpacity
+              key={i}
+              style={[styles.lineRow, l.on && styles.lineRowOn]}
+              onPress={() => toggleLine(i)}
+            >
+              <Text style={styles.lineBox}>{l.on ? '☑' : '☐'}</Text>
+              <Text style={styles.lineText}>{l.text}</Text>
+            </TouchableOpacity>
+          ))}
+
+          <View style={[ui.row, { marginTop: 14 }]}>
+            <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={goReview}>
+              <Text style={ui.pillText}>
+                Continue with {tickedCount} place{tickedCount === 1 ? '' : 's'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={ui.pill} onPress={() => setStep('input')}>
+              <Text style={ui.pillText}>Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={ui.pill} onPress={onClose}>
+              <Text style={ui.pillText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {step === 'review' && (
+        <View>
+          <Text style={ui.kicker}>STEP 3</Text>
+          <Text style={ui.h2}>Check before saving</Text>
+          <Text style={ui.sub}>
+            Check each spot and add its address if you have it. Tip: look it up in Google Maps,
+            copy the address, and paste it in.
+          </Text>
+          {msg ? warning(msg) : null}
+
+          {items.map(it => (
+            <View key={it.key} style={ui.listCard}>
+              <Text style={[ui.label, { marginTop: 0 }]}>Place name</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <TextInput
+                  style={[ui.field, { flex: 1 }]}
+                  value={it.name}
+                  onChangeText={t => patchItem(it.key, { name: t })}
+                  placeholder="Name of the place"
+                  placeholderTextColor="#8a9ca6"
+                />
+                <TouchableOpacity
+                  style={[ui.pill, ui.pillSmall, ui.pillDanger, styles.removeBtn]}
+                  onPress={() => removeItem(it.key)}
+                >
+                  <Text style={[ui.pillText, ui.pillDangerText]}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={ui.label}>Address</Text>
+              <TextInput
+                style={[ui.field, { minHeight: 56, textAlignVertical: 'top' }]}
+                value={it.address}
+                onChangeText={t => patchItem(it.key, { address: t })}
+                placeholder="Paste the address (optional)"
+                placeholderTextColor="#8a9ca6"
+                multiline
+              />
+              <View style={[ui.row, { marginTop: 10 }]}>
+                {smallPill('🔎 Look it up in Google Maps', () =>
+                  openPlace({ name: it.name, address: it.address })
+                )}
+              </View>
+
+              <Text style={ui.label}>Category</Text>
+              <View style={ui.row}>
+                {CATEGORIES.map(c => (
+                  <TouchableOpacity
+                    key={c.id}
+                    style={[ui.pill, ui.pillSmall, it.category === c.id && ui.pillActive]}
+                    onPress={() => patchItem(it.key, { category: c.id })}
+                  >
+                    <Text style={[ui.pillText, ui.pillTextSmall]}>
+                      {c.emoji} {c.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={ui.label}>Notes</Text>
+              <TextInput
+                style={[ui.field, { minHeight: 64, textAlignVertical: 'top' }]}
+                value={it.note}
+                onChangeText={t => patchItem(it.key, { note: t })}
+                multiline
+                placeholder="Notes (optional)"
+                placeholderTextColor="#8a9ca6"
+              />
+            </View>
+          ))}
+
+          {items.length === 0 && (
+            <View style={ui.notice}>
+              <Text style={ui.noticeText}>No spots left. Tap Back to start again.</Text>
+            </View>
+          )}
+
+          <View style={[ui.row, { marginTop: 16 }]}>
+            <TouchableOpacity
+              style={[ui.pill, ui.pillPrimary, (busy || readyCount === 0) && styles.dim]}
+              onPress={confirmAll}
+              disabled={busy || readyCount === 0}
+            >
+              <Text style={ui.pillText}>
+                {busy ? 'Saving...' : `Save ${readyCount} spot${readyCount === 1 ? '' : 's'}`}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={ui.pill}
+              onPress={() => {
+                setStep(lines.length ? 'pick' : 'input');
+              }}
+            >
+              <Text style={ui.pillText}>Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={ui.pill} onPress={onClose}>
+              <Text style={ui.pillText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)' },
-  card: { backgroundColor: colors.cardDark, padding: 14, borderRadius: 10, borderWidth: 1, borderColor: colors.primary },
-  title: { color: colors.primary, fontWeight: 'bold', fontSize: 16, marginBottom: 8 },
-  hint: { color: colors.textMuted, fontSize: 13, marginBottom: 10 },
-  tip: { color: colors.textDim, fontSize: 12 },
-  label: { color: colors.textMuted, fontSize: 13, marginTop: 10, marginBottom: 6 },
-  input: { backgroundColor: colors.input, color: colors.text, padding: 12, borderRadius: 8, fontSize: 14, marginBottom: 8 },
-  warn: { color: colors.highlight, fontSize: 13, marginBottom: 6, marginTop: 4 },
-  ok: { color: colors.success, fontSize: 13, marginTop: 8 },
-  itemCard: { backgroundColor: colors.card, padding: 10, borderRadius: 8, marginTop: 10 },
-  result: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.cardDark, padding: 8, borderRadius: 8, marginTop: 6 },
-  resultTitle: { color: colors.success, fontWeight: 'bold', fontSize: 14 },
-  resultSub: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
-  chip: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 6, marginBottom: 6, borderWidth: 1, borderColor: colors.input },
-  chipOn: { borderColor: colors.primary, backgroundColor: '#1f3a5f' },
-  chipText: { color: colors.text, fontSize: 13 },
-  lineRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.input, padding: 10, borderRadius: 8, marginBottom: 6, borderWidth: 1, borderColor: colors.input },
-  lineRowOn: { borderColor: colors.success, backgroundColor: '#1d3a2c' },
-  lineBox: { color: colors.text, fontSize: 18, marginRight: 10 },
-  lineText: { color: colors.text, fontSize: 14, flex: 1 },
-  greenBtn: { backgroundColor: colors.success, padding: 12, borderRadius: 8, alignItems: 'center' },
-  redBtn: { backgroundColor: colors.danger, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, alignItems: 'center' },
-  greyBtn: { backgroundColor: colors.input, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, alignItems: 'center' },
-  photoBtn: { backgroundColor: colors.primary, padding: 12, borderRadius: 8, alignItems: 'center', marginBottom: 10 },
-  removeBtn: { backgroundColor: colors.danger, width: 40, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
-  smallBtn: { backgroundColor: colors.input, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, marginRight: 8, marginBottom: 4 },
-  gmapBtn: { backgroundColor: colors.googleBlue, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, marginRight: 8, marginBottom: 4 },
-  smallText: { color: colors.text, fontSize: 12, fontWeight: 'bold' },
-  btnText: { color: colors.text, fontWeight: 'bold', fontSize: 14 },
+  dim: { opacity: 0.5 },
+  lineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 11,
+    borderRadius: 12,
+    marginTop: 8,
+    borderWidth: 2,
+    borderColor: P.fieldBorder,
+  },
+  lineRowOn: { borderColor: P.ink, backgroundColor: P.mint },
+  lineBox: { color: P.ink, fontSize: 18, marginRight: 10 },
+  lineText: { color: P.ink, fontSize: 14, flex: 1 },
+  removeBtn: { marginLeft: 8, marginRight: 0, marginBottom: 0 },
 });

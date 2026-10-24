@@ -10,6 +10,7 @@ import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
 import { useTrip } from './trip';
 import DatePicker, { formatDate } from './DatePicker';
+import SkyLayer, { weatherKind, weatherLabel, skyColor } from './WeatherScene';
 
 // Home uses its own light palette from the design, the other tabs stay dark for now
 const P = {
@@ -25,7 +26,6 @@ const P = {
   night: '#33476f',
 };
 
-const COL = 92;
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const short = iso => {
   const [, m, d] = iso.split('-').map(Number);
@@ -50,6 +50,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
   const [skyError, setSkyError] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [selected, setSelected] = useState(null);
+  const [trackW, setTrackW] = useState(0); // width of the day timeline on screen
 
   const [picker, setPicker] = useState(null); // 'join'
 
@@ -89,18 +90,20 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
   const today = localIso.slice(0, 10);
   const timeStr = localIso.slice(11);
 
-  // ---------- sky (free Open-Meteo service, no key needed) ----------
+  // ---------- sky + live weather (free Open-Meteo service, no key needed) ----------
   const loadSky = useCallback(async () => {
     try {
       const url =
         `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
-        '&current=temperature_2m&daily=sunrise,sunset&timezone=auto&forecast_days=1';
+        '&current=temperature_2m,weather_code,cloud_cover&daily=sunrise,sunset&timezone=auto&forecast_days=1';
       const res = await fetch(url);
       if (!res.ok) throw new Error('Weather service unavailable');
       const d = await res.json();
       if (!d.daily?.sunrise?.[0] || !d.daily?.sunset?.[0]) throw new Error('Incomplete data');
       setSky({
         temp: d.current?.temperature_2m,
+        code: d.current?.weather_code,
+        cloud: d.current?.cloud_cover,
         sunrise: d.daily.sunrise[0],
         sunset: d.daily.sunset[0],
         offset: d.utc_offset_seconds || 0,
@@ -125,10 +128,29 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
   const setMin = skyOk ? toMin(sky.sunset.slice(11, 16)) : 1080;
   const nowMin = toMin(timeStr);
 
+  const kind = sky ? weatherKind(sky.code, sky.cloud) : 'clear';
+  const weatherText = sky ? weatherLabel(sky.code, kind) : '';
+
   // ---------- journey ----------
   const clamped = today < start ? start : today > end ? end : today;
   const todayIndex = Math.max(0, days.findIndex(d => d.iso === clamped));
   const joinedBy = iso => travelers.filter(t => (t.join || start) <= iso);
+
+  // Day timeline sizing: up to 6 days fill the screen, more than that show about 5 and a half
+  // so you can see there is more to scroll to.
+  const dayCount = Math.max(1, days.length);
+  const colW = trackW
+    ? Math.max(52, Math.floor(trackW / (dayCount <= 6 ? dayCount : 5.5)))
+    : 70;
+  const avatarSize = Math.max(22, Math.min(30, Math.floor(colW * 0.45)));
+  const narrow = colW < 70;
+
+  // Keep today's day in the middle of the screen (you can still scroll left and right)
+  useEffect(() => {
+    if (!trackW || !scrollRef.current) return;
+    const x = Math.max(0, todayIndex * colW - (trackW / 2 - colW / 2));
+    scrollRef.current.scrollTo({ x, animated: false });
+  }, [trackW, todayIndex, colW, days.length]);
 
   let statusText;
   if (today < start) {
@@ -188,19 +210,21 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
       <View style={s.card}>
         <Text style={s.kicker}>THE WHOLE ADVENTURE</Text>
         <Text style={s.h2}>Our journey path</Text>
-        <Text style={s.sub}>Swipe the path · Tap a day to explore</Text>
+        <Text style={s.sub}>
+          {days.length > 6
+            ? 'Swipe left and right · Tap a day to explore'
+            : 'Tap a day to explore'}
+        </Text>
 
         <ScrollView
           ref={scrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
-          onContentSizeChange={() =>
-            scrollRef.current?.scrollTo({ x: Math.max(0, todayIndex * COL - 120), animated: false })
-          }
+          onLayout={e => setTrackW(e.nativeEvent.layout.width)}
           contentContainerStyle={{ paddingVertical: 12 }}
         >
-          <View style={{ width: days.length * COL, height: 190 }}>
-            <View style={s.pathLine} />
+          <View style={{ width: dayCount * colW, height: 200 }}>
+            <View style={[s.pathLine, { left: colW / 2, right: colW / 2 }]} />
             <View style={{ flexDirection: 'row' }}>
               {days.map((d, i) => {
                 const isToday = i === todayIndex;
@@ -208,19 +232,24 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
                 const visited = i < todayIndex;
                 const here = isToday ? joinedBy(clamped) : [];
                 return (
-                  <View key={d.iso} style={{ width: COL, alignItems: 'center' }}>
+                  <View key={d.iso} style={{ width: colW, alignItems: 'center' }}>
                     <TouchableOpacity
                       onPress={() => setSelected(d.iso)}
-                      style={[s.dayBtn, isToday && s.dayToday, isSel && s.daySel]}
+                      style={[
+                        s.dayBtn,
+                        { width: colW - 8 },
+                        isToday && s.dayToday,
+                        isSel && s.daySel,
+                      ]}
                     >
-                      <Text style={s.dayNum}>Day {d.dayNumber}</Text>
-                      <Text style={s.dayDate}>{d.short}</Text>
+                      <Text style={[s.dayNum, narrow && { fontSize: 12 }]}>Day {d.dayNumber}</Text>
+                      <Text style={[s.dayDate, narrow && { fontSize: 11 }]}>{d.short}</Text>
                     </TouchableOpacity>
                     <View style={[s.node, (visited || isToday) && s.nodeDone, isSel && s.nodeSel]} />
                     <View style={s.stack}>
                       {here.map(t => (
-                        <View key={t.uid} style={t.uid === uid ? s.meRing : null}>
-                          <Avatar characterId={t.character} size={30} />
+                        <View key={t.uid}>
+                          <Avatar characterId={t.character} size={avatarSize} />
                         </View>
                       ))}
                     </View>
@@ -286,17 +315,22 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
         <Text style={s.kicker}>RIGHT HERE, RIGHT NOW</Text>
         <Text style={s.h2}>Local sky & time</Text>
 
-        <View style={[s.scene, { backgroundColor: daylight ? '#bfeaf0' : P.night }]}>
-          {daylight ? <Text style={s.cloud}>☁</Text> : <Text style={s.stars}>✦   ✧   ✦   ✧   ✦</Text>}
-          <View style={[s.orb, daylight ? s.sunOrb : s.moonOrb]} />
+        <View style={[s.scene, { backgroundColor: skyColor(kind, daylight) }]}>
+          <SkyLayer kind={kind} daylight={daylight} />
           <View style={[s.hill, { backgroundColor: daylight ? '#a9dabb' : '#527989' }]} />
-          <View style={[s.me, !daylight && s.meSleep]}>
-            <Avatar characterId={profile.character} sleeping={!daylight} size={50} />
+          <View style={s.me}>
+            <View style={!daylight ? s.meSleep : null}>
+              <Avatar characterId={profile.character} sleeping={!daylight} size={50} />
+            </View>
+            {/* the zzz sits inside the same box as the character, so it stays next to them */}
+            {!daylight ? <Text style={s.zzz}>💤</Text> : null}
           </View>
-          {!daylight ? <Text style={s.zzz}>💤</Text> : null}
         </View>
 
-        <Text style={s.state}>{daylight ? '☀ Daytime' : '☾ Sleeping'}</Text>
+        <Text style={s.state}>
+          {daylight ? '☀ Daytime' : '☾ Sleeping'}
+          {weatherText ? ` · ${weatherText}` : ''}
+        </Text>
         <Text style={s.time}>{timeStr}</Text>
         <Text style={s.sub}>{today} · destination time</Text>
 
@@ -378,8 +412,8 @@ const s = StyleSheet.create({
   badge: { alignSelf: 'flex-start', ...border, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12, marginTop: 10, backgroundColor: '#fff' },
   badgeText: { color: P.ink, fontWeight: '800', fontSize: 12 },
 
-  pathLine: { position: 'absolute', top: 74, left: COL / 2, right: COL / 2, height: 8, backgroundColor: P.line, ...border, borderRadius: 9 },
-  dayBtn: { width: COL - 14, paddingVertical: 6, borderRadius: 14, borderWidth: 2, borderColor: 'transparent', alignItems: 'center' },
+  pathLine: { position: 'absolute', top: 74, height: 8, backgroundColor: P.line, ...border, borderRadius: 9 },
+  dayBtn: { paddingVertical: 6, borderRadius: 14, borderWidth: 2, borderColor: 'transparent', alignItems: 'center' },
   dayToday: { backgroundColor: P.mint, borderColor: '#54a887' },
   daySel: { backgroundColor: P.sun, borderColor: P.ink },
   dayNum: { color: P.ink, fontWeight: '800', fontSize: 14 },
@@ -388,7 +422,6 @@ const s = StyleSheet.create({
   nodeDone: { backgroundColor: '#8ecdc0' },
   nodeSel: { backgroundColor: '#ffae79' },
   stack: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: 16, minHeight: 52 },
-  meRing: { borderWidth: 2, borderColor: '#db7868', borderRadius: 18, backgroundColor: '#fff1d9' },
 
   notice: { backgroundColor: P.soft, borderWidth: 2, borderColor: P.line, borderRadius: 12, padding: 12, marginTop: 4 },
   noticeTitle: { color: P.ink, fontWeight: '800', fontSize: 15 },
@@ -405,18 +438,12 @@ const s = StyleSheet.create({
 
   pill: { alignSelf: 'flex-start', backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14, marginTop: 12 },
   pillText: { color: P.ink, fontWeight: '800', fontSize: 14 },
-  saveBtn: { backgroundColor: '#ffd388', ...border, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center' },
 
   scene: { height: 190, ...border, borderRadius: 18, overflow: 'hidden', marginTop: 10 },
-  cloud: { position: 'absolute', top: 30, left: 24, fontSize: 32, color: '#fff' },
-  stars: { position: 'absolute', top: 18, left: 20, color: '#ffe6a1', fontSize: 20 },
-  orb: { position: 'absolute', right: 30, top: 22, width: 52, height: 52, borderRadius: 26, borderWidth: 3, borderColor: P.ink },
-  sunOrb: { backgroundColor: '#ffdc78' },
-  moonOrb: { backgroundColor: '#f9f2cf' },
   hill: { position: 'absolute', bottom: -70, left: '-15%', width: '130%', height: 130, borderRadius: 200, borderWidth: 3, borderColor: P.ink },
   me: { position: 'absolute', bottom: 34, left: '42%' },
   meSleep: { transform: [{ rotate: '-82deg' }], opacity: 0.85 },
-  zzz: { position: 'absolute', bottom: 80, left: '58%', fontSize: 24 },
+  zzz: { position: 'absolute', left: -6, top: -18, fontSize: 22 },
 
   state: { color: P.ink, fontWeight: '800', fontSize: 16, marginTop: 12 },
   time: { color: P.ink, fontSize: 44, fontWeight: '800', marginTop: 2 },
@@ -429,10 +456,4 @@ const s = StyleSheet.create({
   cyclePin: { position: 'absolute', top: -1, width: 26, height: 26, marginLeft: -13, borderRadius: 13, borderWidth: 3, borderColor: P.ink, backgroundColor: '#fff' },
   cycleLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
   error: { color: '#832c2b', backgroundColor: '#fff0ec', borderWidth: 2, borderColor: '#b64d48', borderRadius: 12, padding: 10, marginTop: 10, fontSize: 13 },
-
-  label: { color: P.ink, fontSize: 14, marginTop: 12, marginBottom: 6 },
-  input: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#b6cfc3', borderRadius: 11, padding: 10, color: P.ink, fontSize: 15 },
-  inputText: { color: P.ink, fontSize: 15 },
-  current: { color: P.muted, fontSize: 13, marginBottom: 6 },
-  result: { backgroundColor: '#fff', ...border, borderRadius: 14, padding: 10, marginTop: 8 },
 });
