@@ -11,6 +11,7 @@ import {
 import {
   onIdTokenChanged,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   sendPasswordResetEmail,
 } from 'firebase/auth';
 
@@ -50,6 +51,8 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [loginMode, setLoginMode] = useState('login'); // 'login' | 'signup'
+  const [loginConfirm, setLoginConfirm] = useState('');
   const [loginInfo, setLoginInfo] = useState('');
 
   const handleLogin = async () => {
@@ -70,6 +73,55 @@ export default function App() {
     } finally {
       setLoginBusy(false);
     }
+  };
+
+  // Friends create their own account: no setup needed on your side.
+  // After this, the app asks them for a name and character (the profile setup screen).
+  const handleSignUp = async () => {
+    if (!loginEmail.trim() || !loginPassword) {
+      setLoginError('Please enter your email and choose a password.');
+      return;
+    }
+    if (loginPassword.length < 6) {
+      setLoginError('Your password needs at least 6 characters.');
+      return;
+    }
+    if (loginPassword !== loginConfirm) {
+      setLoginError('The two passwords do not match.');
+      return;
+    }
+
+    setLoginBusy(true);
+    setLoginError('');
+    setLoginInfo('');
+
+    try {
+      await createUserWithEmailAndPassword(auth, loginEmail.trim(), loginPassword);
+      setLoginPassword('');
+      setLoginConfirm('');
+    } catch (error) {
+      console.error('Sign up failed:', error);
+      const code = error && error.code;
+      if (code === 'auth/email-already-in-use') {
+        setLoginError('That email already has an account. Try logging in instead.');
+      } else if (code === 'auth/invalid-email') {
+        setLoginError('That email address does not look right.');
+      } else if (code === 'auth/weak-password') {
+        setLoginError('Please choose a stronger password (at least 6 characters).');
+      } else {
+        setLoginError('Could not create your account. Please try again.');
+      }
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
+  const switchMode = mode => {
+    setLoginMode(mode);
+    setLoginError('');
+    setLoginInfo('');
+    setLoginPassword('');
+    setLoginConfirm('');
   };
 
   const handleForgot = async () => {
@@ -176,7 +228,9 @@ export default function App() {
     return (
       <View style={[styles.center, { padding: 24 }]}>
         <Text style={styles.loginTitle}>My Travel App</Text>
-        <Text style={styles.loginSubtitle}>Sign in to access your trip</Text>
+        <Text style={styles.loginSubtitle}>
+          {loginMode === 'login' ? 'Sign in to access your trip' : 'Create your account to join in'}
+        </Text>
 
         <TextInput
           style={styles.loginInput}
@@ -196,24 +250,55 @@ export default function App() {
           value={loginPassword}
           onChangeText={setLoginPassword}
           secureTextEntry
-          autoComplete="current-password"
+          autoComplete={loginMode === 'login' ? 'current-password' : 'new-password'}
         />
 
+        {loginMode === 'signup' && (
+          <TextInput
+            style={styles.loginInput}
+            placeholder="Confirm password"
+            placeholderTextColor={colors.textMuted}
+            value={loginConfirm}
+            onChangeText={setLoginConfirm}
+            secureTextEntry
+            autoComplete="new-password"
+          />
+        )}
+
         <TouchableOpacity
-          onPress={handleLogin}
+          onPress={loginMode === 'login' ? handleLogin : handleSignUp}
           disabled={loginBusy}
           style={styles.loginButton}
         >
           <Text style={{ color: colors.text, fontWeight: 'bold' }}>
-            {loginBusy ? 'Signing in...' : 'Log In'}
+            {loginBusy
+              ? loginMode === 'login'
+                ? 'Signing in...'
+                : 'Creating account...'
+              : loginMode === 'login'
+              ? 'Log In'
+              : 'Create account'}
           </Text>
         </TouchableOpacity>
 
         {!!loginError && <Text style={styles.loginError}>{loginError}</Text>}
         {!!loginInfo && <Text style={styles.loginInfo}>{loginInfo}</Text>}
 
-        <TouchableOpacity onPress={handleForgot} style={{ marginTop: 18 }}>
-          <Text style={styles.forgotText}>Forgot password?</Text>
+        {loginMode === 'login' && (
+          <TouchableOpacity onPress={handleForgot} style={{ marginTop: 18 }}>
+            <Text style={styles.forgotText}>Forgot password?</Text>
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity
+          onPress={() => switchMode(loginMode === 'login' ? 'signup' : 'login')}
+          style={{ marginTop: 18 }}
+        >
+          <Text style={styles.forgotText}>
+            {loginMode === 'login'
+              ? 'New here? Create an account'
+              : 'Already have an account? Log in'}
+          </Text>
         </TouchableOpacity>
       </View>
     );
