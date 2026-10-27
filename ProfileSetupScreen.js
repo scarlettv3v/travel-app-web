@@ -1,3 +1,5 @@
+import { signOut } from 'firebase/auth';
+import { auth } from './firebase';
 import React, { useState } from 'react';
 import { Text, View, StyleSheet, TouchableOpacity, TextInput, ScrollView } from 'react-native';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
@@ -33,7 +35,10 @@ export default function ProfileSetupScreen({ authToken, uid, onSaved }) {
       onSaved({ name: name.trim(), character: code });
     } catch (error) {
       console.error('Error saving profile:', error);
-      alert('Could not save your profile.');
+      const blocked = String(error.message).includes('(403)');
+      alert(blocked
+        ? 'This email is not on the invite list. Ask the trip organiser to add it.'
+        : 'Could not save your profile.');
     } finally {
       setBusy(false);
     }
@@ -62,6 +67,9 @@ export default function ProfileSetupScreen({ authToken, uid, onSaved }) {
       <TouchableOpacity style={styles.button} onPress={save} disabled={busy}>
         <Text style={styles.buttonText}>{busy ? 'Saving...' : "Let's go!"}</Text>
       </TouchableOpacity>
+      <TouchableOpacity onPress={() => signOut(auth)} style={{ marginTop: 18 }}>
+  <Text style={{ color: '#526873', textAlign: 'center' }}>Not you? Log out</Text>
+</TouchableOpacity>
     </ScrollView>
   );
 }
