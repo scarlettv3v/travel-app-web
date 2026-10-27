@@ -230,7 +230,11 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
                 const isToday = i === todayIndex;
                 const isSel = d.iso === selected;
                 const visited = i < todayIndex;
-                const here = isToday ? joinedBy(clamped) : [];
+                const here = isToday
+  ? joinedBy(clamped)
+  : d.iso > clamped
+    ? travelers.filter(t => (t.join || start) === d.iso)
+    : [];
                 return (
                   <View key={d.iso} style={{ width: colW, alignItems: 'center' }}>
                     <TouchableOpacity
@@ -248,10 +252,10 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
                     <View style={[s.node, (visited || isToday) && s.nodeDone, isSel && s.nodeSel]} />
                     <View style={s.stack}>
                       {here.map(t => (
-                        <View key={t.uid}>
-                          <Avatar characterId={t.character} size={avatarSize} />
-                        </View>
-                      ))}
+  <View key={t.uid} style={!isToday ? { opacity: 0.5 } : null}>
+    <Avatar characterId={t.character} size={avatarSize} />
+  </View>
+))}
                     </View>
                   </View>
                 );

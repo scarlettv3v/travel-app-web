@@ -39,6 +39,8 @@ export default function ProfileSetupScreen({ authToken, uid, onSaved }) {
       alert(blocked
         ? 'This email is not on the invite list. Ask the trip organiser to add it.'
         : 'Could not save your profile.');
+        if (blocked) {
+        await signOut(auth);
     } finally {
       setBusy(false);
     }
