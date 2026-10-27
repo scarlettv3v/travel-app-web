@@ -28,16 +28,21 @@ import ProfileSetupScreen from './ProfileSetupScreen';
 import { TripProvider } from './trip';
 import HomeScreen from './HomeScreen';
 import AntDesign from '@expo/vector-icons/AntDesign';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Feather from '@expo/vector-icons/Feather';
 
 // Bottom bar design (from Canva): id, pixel glyph, label, tile colour.
 // If a glyph shows as an empty box on a device, swap it for an emoji,
 // e.g. '🏠' '📅' '🗺️' '🧳' '💰'.
 const TABS = [
-  ['home', '⌂', 'Home', '#d9f5e7'],
-  ['itinerary', '▣', 'Itinerary', '#dbeeff'],
-  ['spots', '⌖', 'Spots', '#eadcf3'],
-  ['bookings', '▤', 'Bookings', '#f3d3dc'],
-  ['expenses', '＄', 'Expenses', '#ffe4ad'],
+const TABS = [
+  ['home', MaterialCommunityIcons, 'home-variant-outline', 'Home', '#d9f5e7'],
+  ['itinerary', AntDesign, 'schedule', 'Itinerary', '#dbeeff'],
+  ['spots', MaterialIcons, 'place', 'Spots', '#eadcf3'],
+  ['bookings', FontAwesome, 'book', 'Bookings', '#f3d3dc'],
+  ['expenses', Feather, 'dollar-sign', 'Expenses', '#ffe4ad'],
 ];
 
 export default function App() {
@@ -363,7 +368,7 @@ export default function App() {
         <View>
           <View style={tabs.edge} />
           <View style={tabs.bar}>
-            {TABS.map(([id, glyph, label, tint]) => {
+          {TABS.map(([id, Icon, iconName, label, tint]) => {
               const on = tab === id;
               return (
                 <TouchableOpacity
@@ -384,11 +389,7 @@ export default function App() {
                         on && { transform: [{ translateY: -2 }] },
                       ]}
                     >
-                   {id === 'itinerary' ? (
-  <AntDesign name="schedule" size={18} color={INK} />
-) : (
-  <Text style={tabs.glyph}>{glyph}</Text>
-)}
+                 <Icon name={iconName} size={18} color={INK} />
                     </View>
                   </View>
                   <Text style={tabs.label} numberOfLines={1}>{label}</Text>
