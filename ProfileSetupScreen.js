@@ -41,6 +41,7 @@ export default function ProfileSetupScreen({ authToken, uid, onSaved }) {
         : 'Could not save your profile.');
         if (blocked) {
         await signOut(auth);
+        }
     } finally {
       setBusy(false);
     }
