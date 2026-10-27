@@ -288,7 +288,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
 
         <View style={s.divider} />
         <Text style={s.h3}>Travel companions</Text>
-        <Text style={s.sub}>Joining status follows today’s date at the destination.</Text>
+        <Text style={s.sub}>See who has joined and who is arriving later.</Text>
         {travelers.map(t => {
           const join = t.join || start;
           const joined = today >= join;
@@ -300,7 +300,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={s.travelerName}>{t.name}{mine ? ' ★ YOU' : ''}</Text>
-                <Text style={s.sub}>Joins {short(join)}</Text>
+             <Text style={s.sub}>{joined ? 'Joined on' : 'Joins on'} {short(join)}</Text>
               </View>
               <View style={[s.status, joined && s.statusOn]}>
                 <Text style={s.statusText}>{joined ? 'Joined' : 'Not joined yet'}</Text>
