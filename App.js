@@ -27,6 +27,7 @@ import ProfileScreen from './ProfileScreen';
 import ProfileSetupScreen from './ProfileSetupScreen';
 import { TripProvider } from './trip';
 import HomeScreen from './HomeScreen';
+import AntDesign from '@expo/vector-icons/AntDesign';
 
 // Bottom bar design (from Canva): id, pixel glyph, label, tile colour.
 // If a glyph shows as an empty box on a device, swap it for an emoji,
@@ -383,7 +384,11 @@ export default function App() {
                         on && { transform: [{ translateY: -2 }] },
                       ]}
                     >
-                      <Text style={tabs.glyph}>{glyph}</Text>
+                   {id === 'itinerary' ? (
+  <AntDesign name="schedule" size={18} color={INK} />
+) : (
+  <Text style={tabs.glyph}>{glyph}</Text>
+)}
                     </View>
                   </View>
                   <Text style={tabs.label} numberOfLines={1}>{label}</Text>

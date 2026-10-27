@@ -299,7 +299,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
                 <Avatar characterId={t.character} size={32} />
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={s.travelerName}>{t.name}{mine ? ' ★ YOU' : ''}</Text>
+   <Text style={s.travelerName}>{t.name}{mine ? ' (You)' : ''}</Text>
              <Text style={s.sub}>{joined ? 'Joined on' : 'Joins on'} {short(join)}</Text>
               </View>
               <View style={[s.status, joined && s.statusOn]}>
