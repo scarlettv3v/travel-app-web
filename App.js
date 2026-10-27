@@ -37,7 +37,6 @@ import Feather from '@expo/vector-icons/Feather';
 // If a glyph shows as an empty box on a device, swap it for an emoji,
 // e.g. '🏠' '📅' '🗺️' '🧳' '💰'.
 const TABS = [
-const TABS = [
   ['home', MaterialCommunityIcons, 'home-variant-outline', 'Home', '#d9f5e7'],
   ['itinerary', AntDesign, 'schedule', 'Itinerary', '#dbeeff'],
   ['spots', MaterialIcons, 'place', 'Spots', '#eadcf3'],
