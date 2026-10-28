@@ -27,16 +27,20 @@ import ProfileScreen from './ProfileScreen';
 import ProfileSetupScreen from './ProfileSetupScreen';
 import { TripProvider } from './trip';
 import HomeScreen from './HomeScreen';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
+import FontAwesome6 from '@expo/vector-icons/FontAwesome6';
 
 // Bottom bar design (from Canva): id, pixel glyph, label, tile colour.
 // If a glyph shows as an empty box on a device, swap it for an emoji,
 // e.g. '🏠' '📅' '🗺️' '🧳' '💰'.
 const TABS = [
-  ['home', '⌂', 'Home', '#d9f5e7'],
-  ['itinerary', '▣', 'Itinerary', '#dbeeff'],
-  ['spots', '⌖', 'Spots', '#eadcf3'],
-  ['bookings', '▤', 'Bookings', '#f3d3dc'],
-  ['expenses', '＄', 'Expenses', '#ffe4ad'],
+  ['home', MaterialCommunityIcons, 'home-variant-outline', 'Home', '#d9f5e7'],
+  ['itinerary', MaterialIcons, 'today', 'Itinerary', '#dbeeff'],
+  ['spots', MaterialIcons, 'place', 'Spots', '#eadcf3'],
+  ['bookings', FontAwesome, 'book', 'Bookings', '#f3d3dc'],
+  ['expenses', FontAwesome6, 'dollar-sign', 'Expenses', '#ffe4ad'],
 ];
 
 export default function App() {
@@ -414,7 +418,7 @@ export default function App() {
         <View>
           <View style={tabs.edge} />
           <View style={tabs.bar}>
-            {TABS.map(([id, glyph, label, tint]) => {
+           {TABS.map(([id, Icon, iconName, label, tint]) => {
               const on = tab === id;
               return (
                 <TouchableOpacity
@@ -435,7 +439,7 @@ export default function App() {
                         on && { transform: [{ translateY: -2 }] },
                       ]}
                     >
-                      <Text style={tabs.glyph}>{glyph}</Text>
+                    <Icon name={iconName} size={18} color={INK} />
                     </View>
                   </View>
                   <Text style={tabs.label} numberOfLines={1}>{label}</Text>
