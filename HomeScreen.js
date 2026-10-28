@@ -25,7 +25,7 @@ const P = {
   coral: '#ec7869',
   night: '#33476f',
 };
-
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const short = iso => {
   const [, m, d] = iso.split('-').map(Number);
