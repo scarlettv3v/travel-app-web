@@ -26,10 +26,15 @@ const P = {
   night: '#33476f',
 };
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const short = iso => {
   const [, m, d] = iso.split('-').map(Number);
-  return `${d} ${MONTHS[m - 1]}`;
+  return `${MONTHS[m - 1]} ${d}`;
+};
+const fullDate = iso => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const wd = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${MONTHS[m - 1]} ${d} (${wd}) ${y}`;
 };
 const utc = iso => {
   const [y, m, d] = iso.split('-').map(Number);
@@ -247,7 +252,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
                       ]}
                     >
                       <Text style={[s.dayNum, narrow && { fontSize: 12 }]}>Day {d.dayNumber}</Text>
-                      <Text style={[s.dayDate, narrow && { fontSize: 11 }]}>{d.short}</Text>
+                      <Text style={[s.dayDate, narrow && { fontSize: 11 }]}>{short(d.iso)}</Text>
                     </TouchableOpacity>
                     <View style={[s.node, (visited || isToday) && s.nodeDone, isSel && s.nodeSel]} />
                     <View style={s.stack}>
@@ -267,7 +272,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
         {selectedDay ? (
           <View style={s.notice}>
             <Text style={s.noticeTitle}>
-              Day {selectedDay.dayNumber} · {selectedDay.weekday} {selectedDay.short}
+             {`Day ${selectedDay.dayNumber}\u2009-\u2009${short(selectedDay.iso)} (${selectedDay.weekday})`}
             </Text>
             <Text style={s.sub}>
               {joinedBy(selectedDay.iso).length
@@ -309,7 +314,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
           );
         })}
         <TouchableOpacity style={s.pill} onPress={() => setPicker('join')}>
-          <Text style={s.pillText}>📅 My join date: {formatDate(myJoin)}</Text>
+         <Text style={s.pillText}>📅 My join date: {fullDate(myJoin)}</Text>
         </TouchableOpacity>
 
       </View>
