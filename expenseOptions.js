@@ -1,6 +1,6 @@
 export const BASE_CURRENCY = 'NZD'; // everything is converted to this for totals
 
-export const CURRENCIES = ['NZD', 'TWD', 'USD', 'AUD', 'EUR', 'GBP', 'JPY'];
+export const CURRENCIES = ['NZD', 'HKD', 'TWD', 'USD', 'AUD', 'EUR', 'GBP', 'JPY'];
 
 export const EXPENSE_CATEGORIES = [
   { id: 'food', emoji: '🍽️', label: 'Food' },
