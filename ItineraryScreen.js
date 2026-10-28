@@ -12,6 +12,8 @@ import { openPlace, openRoute } from './places';
 import { P, ui, screenContent } from './ui';
 
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
+const joinList = doc =>
+  (doc.fields?.joining?.arrayValue?.values || []).map(v => v.stringValue);
 const TRANSPORT_EMOJI = { flight: '✈️', car: '🚗', train: '🚆', ferry: '⛴️' };
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
 
@@ -43,6 +45,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
           arriveTime: str(doc, 'arriveTime'),
           confirmation: str(doc, 'confirmation'),
           addedByCharacter: str(doc, 'addedByCharacter'),
+          joining: joinList(doc),
         }))
       );
 
@@ -61,6 +64,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
           lat: Number(doc.fields?.lat?.doubleValue ?? doc.fields?.lat?.integerValue ?? 0),
           lng: Number(doc.fields?.lng?.doubleValue ?? doc.fields?.lng?.integerValue ?? 0),
           addedByCharacter: str(doc, 'addedByCharacter'),
+          joining: joinList(doc),
         }))
       );
 
@@ -245,6 +249,23 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
     </TouchableOpacity>
   );
 
+  // who is on this flight / stay (set from the Bookings tab)
+  const renderJoiners = names =>
+    names && names.length ? (
+      <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
+        <View style={{ flexDirection: 'row' }}>
+          {names.slice(0, 4).map(n => (
+            <View key={n} style={{ marginLeft: 2 }}>
+              <Avatar characterId={characters[n] || 'fox'} size={22} />
+            </View>
+          ))}
+        </View>
+        {names.length > 4 ? (
+          <Text style={{ color: P.muted, fontSize: 11 }}>+{names.length - 4}</Text>
+        ) : null}
+      </View>
+    ) : null;
+
   // a transport strip: blue, compact, clearly "getting there"
   const renderTravel = ({ t, dir }) => (
     <View key={t.id + dir} style={[styles.strip, styles.travelStrip]}>
@@ -269,7 +290,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
           </Text>
         ) : null}
       </View>
-      {t.addedByCharacter ? <Avatar characterId={t.addedByCharacter} size={24} /> : null}
+      {renderJoiners(t.joining)}
     </View>
   );
 
@@ -291,7 +312,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
           {pillBtn('Google Maps', () => openPlace({ name: s.name, address: s.address }))}
         </View>
       </View>
-      {s.addedByCharacter ? <Avatar characterId={s.addedByCharacter} size={24} /> : null}
+      {renderJoiners(s.joining)}
     </View>
   );
 

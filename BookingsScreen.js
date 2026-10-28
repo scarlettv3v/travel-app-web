@@ -83,6 +83,8 @@ const MIN_FROM = { arriveDate: 'departDate', checkOut: 'checkIn' };
 const isDate = text => /^\d{4}-\d{2}-\d{2}$/.test(text);
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
 const nice = d => (d ? formatDate(d) : '');
+const joinList = doc =>
+  (doc.fields?.joining?.arrayValue?.values || []).map(v => v.stringValue);
 function toFields(values) {
   const out = {};
   Object.keys(values).forEach(key => {
@@ -97,6 +99,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
   const [transport, setTransport] = useState([]);
   const [stays, setStays] = useState([]);
   const [reservations, setReservations] = useState([]);
+  const [characters, setCharacters] = useState({});
   const [formKind, setFormKind] = useState(null); // 'transport' | 'stay' | 'activity' | 'restaurant' | null
   const [editingId, setEditingId] = useState(null);
   const [values, setValues] = useState({});
@@ -124,6 +127,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
         notes: str(doc, 'notes'),
         addedByName: str(doc, 'addedByName'),
         addedByCharacter: str(doc, 'addedByCharacter'),
+        joining: joinList(doc),
       }));
       tList.sort((a, b) =>
         (a.departDate + a.departTime).localeCompare(b.departDate + b.departTime)
@@ -147,6 +151,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
         notes: str(doc, 'notes'),
         addedByName: str(doc, 'addedByName'),
         addedByCharacter: str(doc, 'addedByCharacter'),
+        joining: joinList(doc),
       }));
       sList.sort((a, b) => a.checkIn.localeCompare(b.checkIn));
       setStays(sList);
@@ -171,9 +176,18 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
           notes: str(doc, 'note'),
           addedByName: str(doc, 'addedByName'),
           addedByCharacter: str(doc, 'addedByCharacter'),
+          joining: joinList(doc),
         }));
       rList.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
       setReservations(rList);
+
+      const prRes = await firestoreFetch(`${FIRESTORE_BASE}/profiles?pageSize=300`, authToken);
+      const prData = await prRes.json();
+      const map = {};
+      (prData.documents || []).forEach(doc => {
+        map[str(doc, 'name')] = str(doc, 'character') || 'fox';
+      });
+      setCharacters(map);
     } catch (error) {
       console.error('Error loading bookings:', error);
     }
@@ -321,11 +335,14 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            fields: toFields({
-              ...values,
-              addedByName: profile.name,
-              addedByCharacter: profile.character,
-            }),
+            fields: {
+              ...toFields({
+                ...values,
+                addedByName: profile.name,
+                addedByCharacter: profile.character,
+              }),
+              joining: { arrayValue: { values: [{ stringValue: profile.name }] } },
+            },
           }),
         });
       }
@@ -360,6 +377,61 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
   const formFields = formKind ? formFor(formKind) : [];
 
   // ---------- small render helpers ----------
+  // Everyone sees every booking. Each person taps "I'm on this" if it applies to them.
+  const toggleJoin = async item => {
+    const current = item.joining || [];
+    const next = current.includes(profile.name)
+      ? current.filter(n => n !== profile.name)
+      : [...current, profile.name];
+    try {
+      await firestoreFetch(
+        `https://firestore.googleapis.com/v1/${item.id}?updateMask.fieldPaths=joining`,
+        authToken,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fields: { joining: { arrayValue: { values: next.map(n => ({ stringValue: n })) } } },
+          }),
+        }
+      );
+      await loadAll();
+    } catch (error) {
+      console.error('Error updating who is on this booking:', error);
+      alert('Could not update.');
+    }
+  };
+
+  const renderWho = item => (
+    <View style={{ marginTop: 10 }}>
+      <Text style={[ui.sub, { marginTop: 0 }]}>Who's on this?</Text>
+      <View style={[ui.row, { marginTop: 6 }]}>
+        {(item.joining || []).length === 0 ? (
+          <Text style={[ui.sub, { marginTop: 0 }]}>Nobody yet. Tap "I'm on this".</Text>
+        ) : (
+          item.joining.map(name => (
+            <View key={name} style={{ alignItems: 'center', marginRight: 10 }}>
+              <Avatar characterId={characters[name] || 'fox'} size={24} />
+              <Text style={{ color: '#526873', fontSize: 11 }}>{name}</Text>
+            </View>
+          ))
+        )}
+      </View>
+    </View>
+  );
+
+  const joinPill = (item, label = "I'm on this", leave = 'Leave') => {
+    const on = (item.joining || []).includes(profile.name);
+    return (
+      <TouchableOpacity
+        style={[ui.pill, ui.pillSmall, !on && ui.pillPrimary]}
+        onPress={() => toggleJoin(item)}
+      >
+        <Text style={[ui.pillText, ui.pillTextSmall]}>{on ? leave : label}</Text>
+      </TouchableOpacity>
+    );
+  };
+
   const renderAddedBy = item =>
     item.addedByCharacter ? (
       <View style={ui.byRow}>
@@ -514,8 +586,9 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
             {t.confirmation ? <Text style={ui.sub}>Confirmation: {t.confirmation}</Text> : null}
             {t.notes ? <LinkText style={ui.sub}>{`📝 ${t.notes}`}</LinkText> : null}
             {outside(t.departDate) ? renderWarning('Departs outside your trip dates') : null}
+            {renderWho(t)}
             {renderAddedBy(t)}
-            {renderButtons('transport', t)}
+            {renderButtons('transport', t, joinPill(t))}
           </View>
         ))}
 
@@ -543,8 +616,16 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
             {outside(h.checkIn) || outside(h.checkOut)
               ? renderWarning('Dates fall outside your trip')
               : null}
+            {renderWho(h)}
             {renderAddedBy(h)}
-            {renderButtons('stay', h, directionsPill(h))}
+            {renderButtons(
+              'stay',
+              h,
+              <>
+                {joinPill(h)}
+                {directionsPill(h)}
+              </>
+            )}
           </View>
         ))}
 
@@ -581,11 +662,13 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
               ) : (
                 renderWarning('This date is outside your trip, so it is not on the itinerary')
               )}
+              {renderWho(r)}
               {renderAddedBy(r)}
               {renderButtons(
                 r.kind,
                 r,
                 <>
+                  {joinPill(r, "I'm in")}
                   {day && onOpenItinerary ? (
                     <TouchableOpacity
                       style={[ui.pill, ui.pillSmall, ui.pillPrimary]}

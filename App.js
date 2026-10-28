@@ -27,21 +27,16 @@ import ProfileScreen from './ProfileScreen';
 import ProfileSetupScreen from './ProfileSetupScreen';
 import { TripProvider } from './trip';
 import HomeScreen from './HomeScreen';
-import AntDesign from '@expo/vector-icons/AntDesign';
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import Feather from '@expo/vector-icons/Feather';
 
 // Bottom bar design (from Canva): id, pixel glyph, label, tile colour.
 // If a glyph shows as an empty box on a device, swap it for an emoji,
 // e.g. '🏠' '📅' '🗺️' '🧳' '💰'.
 const TABS = [
-  ['home', MaterialCommunityIcons, 'home-variant-outline', 'Home', '#d9f5e7'],
-  ['itinerary', AntDesign, 'schedule', 'Itinerary', '#dbeeff'],
-  ['spots', MaterialIcons, 'place', 'Spots', '#eadcf3'],
-  ['bookings', FontAwesome, 'book', 'Bookings', '#f3d3dc'],
-  ['expenses', Feather, 'dollar-sign', 'Expenses', '#ffe4ad'],
+  ['home', '⌂', 'Home', '#d9f5e7'],
+  ['itinerary', '▣', 'Itinerary', '#dbeeff'],
+  ['spots', '⌖', 'Spots', '#eadcf3'],
+  ['bookings', '▤', 'Bookings', '#f3d3dc'],
+  ['expenses', '＄', 'Expenses', '#ffe4ad'],
 ];
 
 export default function App() {
@@ -50,7 +45,22 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
   const [profile, setProfile] = useState(null);
   const [profileReady, setProfileReady] = useState(false);
-  const [tab, setTab] = useState('home');
+  const [tab, setTabState] = useState(() => {
+    try {
+      if (Platform.OS === 'web') return sessionStorage.getItem('app-tab') || 'home';
+    } catch (e) {
+      // storage not available
+    }
+    return 'home';
+  });
+  const setTab = t => {
+    setTabState(t);
+    try {
+      if (Platform.OS === 'web') sessionStorage.setItem('app-tab', t);
+    } catch (e) {
+      // storage not available
+    }
+  };
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -145,6 +155,43 @@ export default function App() {
     // Same message either way, so strangers can't check which emails have accounts
     setLoginInfo('If that email has an account, a reset link is on its way. Check your spam folder too.');
   };
+
+  // Phone-friendly web setup: fit the screen, no zoom, bottom bar stays put
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return undefined;
+
+    let meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute('name', 'viewport');
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute(
+      'content',
+      'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
+    );
+
+    const style = document.createElement('style');
+    style.textContent = `
+      html, body { touch-action: manipulation; -webkit-text-size-adjust: 100%; overscroll-behavior-y: none; }
+      input, textarea, select { font-size: 16px !important; }
+      @supports (height: 100dvh) { html, body, #root { height: 100dvh; } }
+    `;
+    document.head.appendChild(style);
+
+    // iPhone Safari ignores user-scalable=no, so block the pinch gesture too
+    const stop = e => e.preventDefault();
+    document.addEventListener('gesturestart', stop, { passive: false });
+    document.addEventListener('gesturechange', stop, { passive: false });
+    document.addEventListener('gestureend', stop, { passive: false });
+
+    return () => {
+      style.remove();
+      document.removeEventListener('gesturestart', stop);
+      document.removeEventListener('gesturechange', stop);
+      document.removeEventListener('gestureend', stop);
+    };
+  }, []);
 
   // Keeps the login token and user id up to date
   useEffect(() => {
@@ -367,7 +414,7 @@ export default function App() {
         <View>
           <View style={tabs.edge} />
           <View style={tabs.bar}>
-          {TABS.map(([id, Icon, iconName, label, tint]) => {
+            {TABS.map(([id, glyph, label, tint]) => {
               const on = tab === id;
               return (
                 <TouchableOpacity
@@ -388,7 +435,7 @@ export default function App() {
                         on && { transform: [{ translateY: -2 }] },
                       ]}
                     >
-                 <Icon name={iconName} size={18} color={INK} />
+                      <Text style={tabs.glyph}>{glyph}</Text>
                     </View>
                   </View>
                   <Text style={tabs.label} numberOfLines={1}>{label}</Text>
@@ -466,7 +513,10 @@ const tabs = StyleSheet.create({
     borderTopColor: INK,
     paddingTop: 6,
     paddingHorizontal: 8,
-    paddingBottom: 8,
+    ...Platform.select({
+      web: { paddingBottom: 'calc(8px + env(safe-area-inset-bottom))' },
+      default: { paddingBottom: 8 },
+    }),
   },
   btn: {
     flex: 1,

@@ -13,8 +13,6 @@ import Avatar from './Avatar';
 import {
   BASE_CURRENCY,
   CURRENCIES,
-  EXPENSE_CATEGORIES,
-  getExpenseCategory,
 } from './expenseOptions';
 import Popup from './Popup';
 import { P, ui, screenContent } from './ui';
@@ -52,7 +50,6 @@ export default function ExpensesScreen({ authToken, profile }) {
   const [currency, setCurrency] = useState(BASE_CURRENCY);
   const [rate, setRate] = useState('1');
   const [rateNote, setRateNote] = useState('');
-  const [category, setCategory] = useState('food');
   const [payer, setPayer] = useState('');
   const [split, setSplit] = useState([]);
 
@@ -212,7 +209,6 @@ export default function ExpensesScreen({ authToken, profile }) {
     setCurrency(BASE_CURRENCY);
     setRate('1');
     setRateNote('');
-    setCategory('food');
     setPayer(profile.name);
     setSplit(members.map(member => member.name));
     setShowForm(true);
@@ -227,7 +223,6 @@ export default function ExpensesScreen({ authToken, profile }) {
     setCurrency(expense.currency);
     setRate(String(expense.rate));
     setRateNote('');
-    setCategory(expense.category);
     setPayer(expense.payer);
     setSplit(expense.split);
     setShowForm(true);
@@ -277,7 +272,6 @@ export default function ExpensesScreen({ authToken, profile }) {
       currency: { stringValue: currency },
       rate: { doubleValue: numericRate },
       amountBase: { doubleValue: numericAmount * numericRate },
-      category: { stringValue: category },
       payer: { stringValue: payer },
       split: {
         arrayValue: {
@@ -309,6 +303,7 @@ export default function ExpensesScreen({ authToken, profile }) {
           body: JSON.stringify({
             fields: {
               ...fields,
+              category: { stringValue: 'other' },
               addedByName: { stringValue: profile.name },
               addedByCharacter: { stringValue: profile.character },
             },
@@ -379,25 +374,27 @@ export default function ExpensesScreen({ authToken, profile }) {
     return transfers;
   };
 
-  // Breakdown: each person's share of the cost, by category
-  const buildBreakdown = () => {
-    const byPerson = {};
-    const catTotals = {};
-    let grand = 0;
-
+  // Who paid what: what each person paid, their share of the costs, and the difference
+  const buildPaid = () => {
+    const paid = {};
+    const share = {};
     expenses.forEach(expense => {
+      paid[expense.payer] = (paid[expense.payer] || 0) + expense.amountBase;
       if (!expense.split.length) return;
-      const share = expense.amountBase / expense.split.length;
-
-      expense.split.forEach(name => {
-        byPerson[name] = byPerson[name] || {};
-        byPerson[name][expense.category] = (byPerson[name][expense.category] || 0) + share;
-        catTotals[expense.category] = (catTotals[expense.category] || 0) + share;
-        grand += share;
+      const each = expense.amountBase / expense.split.length;
+      expense.split.forEach(n => {
+        share[n] = (share[n] || 0) + each;
       });
     });
-
-    return { byPerson, catTotals, grand };
+    const names = [
+      ...new Set([...members.map(m => m.name), ...Object.keys(paid), ...Object.keys(share)]),
+    ];
+    return names.map(name => ({
+      name,
+      paid: paid[name] || 0,
+      share: share[name] || 0,
+      balance: (paid[name] || 0) - (share[name] || 0),
+    }));
   };
 
   const factor = displayRate || 1;
@@ -405,11 +402,12 @@ export default function ExpensesScreen({ authToken, profile }) {
   const show = n => money(n * factor);
 
   const transfers = calculateTransfers();
-  const breakdown = buildBreakdown();
+  const paidRows = buildPaid();
   const totalSpent = expenses.reduce((sum, e) => sum + e.amountBase, 0);
   const characterOf = name => members.find(m => m.name === name)?.character;
-  const people = Object.keys(breakdown.byPerson);
-  const catRows = EXPENSE_CATEGORIES.filter(c => breakdown.catTotals[c.id]);
+  // the person who is furthest behind on paying their share
+  const behind = paidRows.reduce((low, r) => (!low || r.balance < low.balance ? r : low), null);
+  const nextPayer = expenses.length && behind && behind.balance < -0.005 ? behind : null;
 
   const memberItems = members.map(m => [m.name, m.name]);
 
@@ -488,70 +486,54 @@ export default function ExpensesScreen({ authToken, profile }) {
           </View>
 
           <View style={ui.panel}>
-            <Text style={ui.h3}>By category</Text>
-            {catRows.length === 0 ? (
+            <Text style={ui.h3}>Who paid what</Text>
+            {expenses.length === 0 ? (
               <View style={ui.notice}>
-                <Text style={ui.noticeText}>No categories yet.</Text>
+                <Text style={ui.noticeText}>Add an expense to see who has paid what.</Text>
               </View>
             ) : (
-              catRows.map(c => (
-                <Text key={c.id} style={[ui.sub, { color: P.ink, marginTop: 8 }]}>
-                  {c.emoji} {c.label} · {shownCurrency} {show(breakdown.catTotals[c.id])}
-                </Text>
-              ))
-            )}
-          </View>
-
-          <View style={ui.panel}>
-            <Text style={ui.h3}>By person</Text>
-            {people.length === 0 ? (
-              <View style={ui.notice}>
-                <Text style={ui.noticeText}>Add an expense to see the breakdown.</Text>
-              </View>
-            ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
-                <View>
-                  <View style={styles.tRow}>
-                    <Text style={[styles.tCell, styles.tFirst, styles.tHead]}>Share</Text>
-                    {EXPENSE_CATEGORIES.map(c => (
-                      <Text key={c.id} style={[styles.tCell, styles.tHead]}>{c.emoji}</Text>
-                    ))}
-                    <Text style={[styles.tCell, styles.tHead]}>Total</Text>
-                  </View>
-
-                  {people.map(name => {
-                    const row = breakdown.byPerson[name];
-                    const total = Object.values(row).reduce((a, b) => a + b, 0);
-                    return (
-                      <View key={name} style={styles.tRow}>
-                        <View style={[styles.tCell, styles.tFirst, { flexDirection: 'row', alignItems: 'center' }]}>
-                          <Avatar characterId={characterOf(name) || 'fox'} size={18} />
-                          <Text style={[styles.tText, { marginLeft: 4 }]} numberOfLines={1}>{name}</Text>
-                        </View>
-                        {EXPENSE_CATEGORIES.map(c => (
-                          <Text key={c.id} style={[styles.tCell, styles.tText]}>
-                            {row[c.id] ? show(row[c.id]) : '–'}
-                          </Text>
-                        ))}
-                        <Text style={[styles.tCell, styles.tText, styles.tBold]}>{show(total)}</Text>
+              <View>
+                {paidRows.map(r => {
+                  const even = Math.abs(r.balance) < 0.005;
+                  return (
+                    <View key={r.name} style={styles.paidRow}>
+                      <Avatar characterId={characterOf(r.name) || 'fox'} size={26} />
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Text style={ui.strong}>{r.name}</Text>
+                        <Text style={[ui.sub, { fontSize: 12 }]}>
+                          Paid {shownCurrency} {show(r.paid)} · Share {shownCurrency} {show(r.share)}
+                        </Text>
                       </View>
-                    );
-                  })}
+                      <View
+                        style={[
+                          ui.tag,
+                          { backgroundColor: even ? '#fff' : r.balance > 0 ? P.mint : P.warnBg },
+                        ]}
+                      >
+                        <Text style={ui.tagText}>
+                          {even
+                            ? 'Even'
+                            : r.balance > 0
+                            ? `+${show(r.balance)}`
+                            : `−${show(-r.balance)}`}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
 
-                  <View style={[styles.tRow, styles.tTotalRow]}>
-                    <Text style={[styles.tCell, styles.tFirst, styles.tText, styles.tBold]}>Everyone</Text>
-                    {EXPENSE_CATEGORIES.map(c => (
-                      <Text key={c.id} style={[styles.tCell, styles.tText, styles.tBold]}>
-                        {breakdown.catTotals[c.id] ? show(breakdown.catTotals[c.id]) : '–'}
-                      </Text>
-                    ))}
-                    <Text style={[styles.tCell, styles.tText, styles.tBold]}>{show(breakdown.grand)}</Text>
-                  </View>
+                <View style={ui.notice}>
+                  <Text style={ui.noticeText}>
+                    {nextPayer
+                      ? `💳 Next to pay: ${nextPayer.name} (has paid the least compared with their share)`
+                      : 'Everyone is even right now.'}
+                  </Text>
                 </View>
-              </ScrollView>
+              </View>
             )}
             <Text style={ui.hint}>
-              Each person's share of the cost, not what they paid. 🍽️ food, 🚗 transport, 🏨 stay, 🎯 activity, 🛍️ shopping, 📦 other.
+              The number on the right is what they paid minus their share. Plus means others owe them,
+              minus means they owe others.
             </Text>
           </View>
         </View>
@@ -572,7 +554,7 @@ export default function ExpensesScreen({ authToken, profile }) {
             <View key={expense.id} style={ui.listCard}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={[ui.strong, { flex: 1, marginRight: 8 }]}>
-                  {getExpenseCategory(expense.category).emoji} {expense.what}
+                  {expense.what}
                 </Text>
                 <Text style={[ui.strong, { fontFamily: MONO }]}>
                   {expense.currency} {money(expense.amount)}
@@ -673,13 +655,6 @@ export default function ExpensesScreen({ authToken, profile }) {
                 </View>
               )}
 
-              <Text style={ui.label}>Category</Text>
-              <Pills
-                items={EXPENSE_CATEGORIES.map(c => [c.id, `${c.emoji} ${c.label}`])}
-                selected={id => category === id}
-                onPress={setCategory}
-              />
-
               <Text style={ui.label}>Paid by</Text>
               <Pills
                 items={memberItems}
@@ -742,11 +717,11 @@ const styles = StyleSheet.create({
   },
   metricText: { color: P.ink, fontSize: 30, fontWeight: '800', fontFamily: MONO },
 
-  tRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: P.fieldBorder },
-  tTotalRow: { borderBottomWidth: 0, borderTopWidth: 1, borderTopColor: P.ink },
-  tCell: { width: 62, textAlign: 'right', paddingHorizontal: 2 },
-  tFirst: { width: 100, textAlign: 'left' },
-  tHead: { color: P.muted, fontSize: 14, fontWeight: '800' },
-  tText: { color: P.ink, fontSize: 13 },
-  tBold: { fontWeight: '800' },
+  paidRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: P.fieldBorder,
+  },
 });

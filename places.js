@@ -4,13 +4,24 @@ import { Platform, Linking } from 'react-native';
 
 const enc = encodeURIComponent;
 
-const openUrl = url => {
+const isMobileWeb = () =>
+  Platform.OS === 'web' &&
+  typeof navigator !== 'undefined' &&
+  (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
+// On a phone's browser, open in the same tab so Google Maps (or its app) opens directly and
+// you come back with the Back button, with no extra tab to close. On a computer, a new tab.
+export const openExternal = url => {
   if (Platform.OS === 'web') {
-    window.open(url, '_blank', 'noopener,noreferrer');
+    if (isMobileWeb()) window.location.assign(url);
+    else window.open(url, '_blank', 'noopener,noreferrer');
   } else {
     Linking.openURL(url).catch(() => {});
   }
 };
+
+const openUrl = openExternal;
 
 // "Name, address" as one search text (no doubling when the address already starts with the name)
 function placeText({ name, address }) {
