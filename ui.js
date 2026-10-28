@@ -49,9 +49,9 @@ export const ui = StyleSheet.create({
   fieldPlaceholder: { color: '#8a9ca6', fontSize: 15 },
 
   // pills (buttons)
-  pill: { backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 9, paddingHorizontal: 15, marginRight: 9, marginBottom: 9 },
-  pillText: { color: P.ink, fontWeight: '800', fontSize: 14 },
-  pillSmall: { paddingVertical: 6, paddingHorizontal: 12 },
+pill: { backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 11, marginRight: 7, marginBottom: 7 },
+pillText: { color: P.ink, fontWeight: '800', fontSize: 14 },
+pillSmall: { paddingVertical: 3, paddingHorizontal: 9 },
   pillTextSmall: { fontSize: 13 },
   pillPrimary: { backgroundColor: P.gold },
   pillActive: { backgroundColor: P.gold },

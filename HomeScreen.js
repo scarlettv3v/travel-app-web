@@ -416,8 +416,8 @@ const s = StyleSheet.create({
   badge: { alignSelf: 'flex-start', ...border, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12, marginTop: 10, backgroundColor: '#fff' },
   badgeText: { color: P.ink, fontWeight: '800', fontSize: 12 },
 
-  pathLine: { position: 'absolute', top: 74, height: 8, backgroundColor: P.line, ...border, borderRadius: 9 },
-  dayBtn: { paddingVertical: 6, borderRadius: 14, borderWidth: 2, borderColor: 'transparent', alignItems: 'center' },
+  pathLine: { position: 'absolute', top: 73, height: 8, backgroundColor: P.line, ...border, borderRadius: 9 },
+ dayBtn: { height: 52, justifyContent: 'center', borderRadius: 14, borderWidth: 2, borderColor: 'transparent', alignItems: 'center' },
   dayToday: { backgroundColor: P.mint, borderColor: '#54a887' },
   daySel: { backgroundColor: P.sun, borderColor: P.ink },
   dayNum: { color: P.ink, fontWeight: '800', fontSize: 14 },
@@ -440,7 +440,7 @@ const s = StyleSheet.create({
   statusOn: { backgroundColor: P.mint },
   statusText: { color: P.ink, fontWeight: '800', fontSize: 11 },
 
-  pill: { alignSelf: 'flex-start', backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14, marginTop: 12 },
+pill: { alignSelf: 'flex-start', backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11, marginTop: 12 },
   pillText: { color: P.ink, fontWeight: '800', fontSize: 14 },
 
   scene: { height: 190, ...border, borderRadius: 18, overflow: 'hidden', marginTop: 10 },

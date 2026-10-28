@@ -16,7 +16,11 @@ const joinList = doc =>
   (doc.fields?.joining?.arrayValue?.values || []).map(v => v.stringValue);
 const TRANSPORT_EMOJI = { flight: '✈️', car: '🚗', train: '🚆', ferry: '⛴️' };
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
-
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const monthDay = iso => {
+  const [, m, d] = iso.split('-').map(Number);
+  return `${MONTHS[m - 1]} ${d}`;
+};
 export default function ItineraryScreen({ authToken, profile, onOpenBookings }) {
   const { days: DAYS } = useTrip();
   const [selected, setSelected] = useState(0);
@@ -403,16 +407,16 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
                 style={[ui.pill, ui.pillSmall, index === selected && ui.pillActive]}
                 onPress={() => setSelected(index)}
               >
-                <Text style={[ui.pillText, ui.pillTextSmall]}>
-                  Day {d.dayNumber} · {d.short}
-                </Text>
+           <Text style={[ui.pillText, ui.pillTextSmall]}>
+  {`Day ${d.dayNumber}\u2009-\u2009${monthDay(d.iso)}`}
+</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
 
-          <Text style={[ui.h3, { marginTop: 8 }]}>
-            Day {day.dayNumber} · {day.weekday} {day.short}
-          </Text>
+         <Text style={[ui.h3, { marginTop: 8 }]}>
+  {`Day ${day.dayNumber}\u2009-\u2009${monthDay(day.iso)} (${day.weekday})`}
+</Text>
         </View>
 
         {/* Stay & travel: logistics, kept apart from the activities */}
