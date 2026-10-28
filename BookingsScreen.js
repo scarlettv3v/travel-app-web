@@ -433,12 +433,9 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
   };
 
   const renderAddedBy = item =>
-    item.addedByCharacter ? (
-      <View style={ui.byRow}>
-        <Avatar characterId={item.addedByCharacter} size={22} />
-        <Text style={[ui.sub, { marginTop: 0, marginLeft: 8 }]}>Added by {item.addedByName}</Text>
-      </View>
-    ) : null;
+  item.addedByName ? (
+    <Text style={[ui.sub, { marginTop: 2 }]}>Added by {item.addedByName}</Text>
+  ) : null;
 
   const renderButtons = (kind, item, extra) => (
     <View style={[ui.row, { marginTop: 12 }]}>
@@ -571,6 +568,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
             <Text style={[ui.h3, { marginTop: 8 }]}>
               {t.from} → {t.to}
             </Text>
+            {renderAddedBy(t)}
             <Text style={ui.sub}>
               {t.provider || typeOf(t.type).label}
               {t.reference ? ` · ${t.reference}` : ''}
@@ -587,7 +585,6 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
             {t.notes ? <LinkText style={ui.sub}>{`📝 ${t.notes}`}</LinkText> : null}
             {outside(t.departDate) ? renderWarning('Departs outside your trip dates') : null}
             {renderWho(t)}
-            {renderAddedBy(t)}
             {renderButtons('transport', t, joinPill(t))}
           </View>
         ))}
@@ -617,7 +614,6 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
               ? renderWarning('Dates fall outside your trip')
               : null}
             {renderWho(h)}
-            {renderAddedBy(h)}
             {renderButtons(
               'stay',
               h,
@@ -663,7 +659,6 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
                 renderWarning('This date is outside your trip, so it is not on the itinerary')
               )}
               {renderWho(r)}
-              {renderAddedBy(r)}
               {renderButtons(
                 r.kind,
                 r,
