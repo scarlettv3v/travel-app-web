@@ -2,22 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { Text, View, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { colors } from './theme';
 import { useTrip } from './trip';
+import { formatDate } from './dateFormat';
+
+// Same name as before, so screens that import { formatDate } from './DatePicker' still work.
+// The look (Nov 21, 2026 (Sat)) now lives in dateFormat.js
+export { formatDate };
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const pad = n => String(n).padStart(2, '0');
 const makeIso = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
 
-export function formatDate(isoStr) {
-  if (!isoStr) return '';
-  const [y, m, d] = isoStr.split('-').map(Number);
-  const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  return `${WEEKDAYS[wd]} ${d} ${MONTHS_SHORT[m - 1]} ${y}`;
-}
-
 export default function DatePicker({ visible, title, value, minDate, onPick, onClear, onClose }) {
-      const { start: TRIP_START, end: TRIP_END } = useTrip();
+  const { start: TRIP_START, end: TRIP_END } = useTrip();
   const seed = value || minDate || TRIP_START;
   const [year, setYear] = useState(Number(seed.split('-')[0]));
   const [month, setMonth] = useState(Number(seed.split('-')[1]) - 1);

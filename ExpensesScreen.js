@@ -11,14 +11,37 @@ import {
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
 import {
-  BASE_CURRENCY,
+  BASE_CURRENCY as LEGACY_BASE, // expenses saved before the trip currency existed were in this
   CURRENCIES,
 } from './expenseOptions';
 import Popup from './Popup';
 import { P, ui, screenContent } from './ui';
+import { useTrip } from './trip';
+import { store, useOnline, isOnlineNow, isNetworkError, getRate } from './offline';
 
 const money = n => Number(n).toFixed(2);
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
+
+const PENDING_KEY = 'pending-expenses'; // expenses saved on this phone, waiting to be sent
+const PENDING_PREFIX = 'pending:';
+
+// An id the app makes up itself, so a retry can never create the same expense twice
+const newDocId = () => 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+// Turns a waiting expense into the format the database expects
+const toFields = item => ({
+  what: { stringValue: item.what },
+  amount: { doubleValue: item.amount },
+  currency: { stringValue: item.currency },
+  rate: { doubleValue: item.rate },
+  amountBase: { doubleValue: item.amountBase },
+  baseCurrency: { stringValue: item.baseCurrency || LEGACY_BASE },
+  payer: { stringValue: item.payer },
+  split: { arrayValue: { values: item.split.map(name => ({ stringValue: name })) } },
+  category: { stringValue: 'other' },
+  addedByName: { stringValue: item.addedByName || '' },
+  addedByCharacter: { stringValue: item.addedByCharacter || '' },
+});
 
 // A row of pill buttons; `selected(id)` says which are on
 function Pills({ items, selected, onPress }) {
@@ -37,27 +60,54 @@ function Pills({ items, selected, onPress }) {
   );
 }
 
-export default function ExpensesScreen({ authToken, profile }) {
+export default function ExpensesScreen({ authToken, profile, defaultCurrency }) {
   const scrollRef = useRef(null);
-  const [members, setMembers] = useState([]);
-  const [expenses, setExpenses] = useState([]);
+  const online = useOnline();
+  const trip = useTrip();
+  const base = trip.currency; // the trip's local currency; totals are worked out in this
+
+  // Start from what was saved last time, so the screen is not empty when offline
+  const [members, setMembers] = useState(() => store.get('cache-members', []));
+  const [expenses, setExpenses] = useState(() => store.get('cache-expenses', []));
+  const [pending, setPending] = useState(() => store.get(PENDING_KEY, []));
+  const pendingRef = useRef(pending);
+
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editOrig, setEditOrig] = useState(null); // { currency, rate } of the expense being edited
 
   const [what, setWhat] = useState('');
   const [amount, setAmount] = useState('');
-  const [currency, setCurrency] = useState(BASE_CURRENCY);
+  const [currency, setCurrency] = useState(base);
   const [rate, setRate] = useState('1');
   const [rateNote, setRateNote] = useState('');
   const [payer, setPayer] = useState('');
   const [split, setSplit] = useState([]);
 
-  const [displayCurrency, setDisplayCurrency] = useState(BASE_CURRENCY);
+  const [displayCurrency, setDisplayCurrency] = useState(defaultCurrency || base);
   const [displayRate, setDisplayRate] = useState(1);
   const [displayNote, setDisplayNote] = useState('');
 
+  // The default currency is only for showing totals. It is added to the buttons if it is not
+  // already in the list, so it can be picked for "Show totals in" and for expenses.
+  const currencyList = [...new Set([base, ...CURRENCIES, ...(defaultCurrency ? [defaultCurrency] : [])])];
+
+  // If the default currency arrives or changes after this screen opens, totals follow it
+  useEffect(() => {
+    setDisplayCurrency(defaultCurrency || base);
+  }, [defaultCurrency, base]);
+
+  // Keeps the waiting list in memory, on screen and on the phone
+  const updatePending = fn => {
+    const next = fn(pendingRef.current);
+    pendingRef.current = next;
+    store.set(PENDING_KEY, next);
+    setPending(next);
+  };
+
   const loadAll = useCallback(async () => {
+    if (!isOnlineNow()) return; // no signal: keep showing what we have
+
     try {
       const membersResponse = await firestoreFetch(
         `${FIRESTORE_BASE}/profiles?pageSize=300`,
@@ -65,15 +115,15 @@ export default function ExpensesScreen({ authToken, profile }) {
       );
       const membersData = await membersResponse.json();
 
-      setMembers(
-        (membersData.documents || [])
-          .map(doc => ({
-            id: doc.name,
-            name: doc.fields?.name?.stringValue || '',
-            character: doc.fields?.character?.stringValue || 'fox',
-          }))
-          .filter(member => member.name)
-      );
+      const nextMembers = (membersData.documents || [])
+        .map(doc => ({
+          id: doc.name,
+          name: doc.fields?.name?.stringValue || '',
+          character: doc.fields?.character?.stringValue || 'fox',
+        }))
+        .filter(member => member.name);
+      setMembers(nextMembers);
+      store.set('cache-members', nextMembers);
 
       const expensesResponse = await firestoreFetch(
         `${FIRESTORE_BASE}/expenses?pageSize=300`,
@@ -81,121 +131,207 @@ export default function ExpensesScreen({ authToken, profile }) {
       );
       const expensesData = await expensesResponse.json();
 
-      setExpenses(
-        (expensesData.documents || []).map(doc => {
-          const f = doc.fields || {};
-          const amount = Number(f.amount?.doubleValue ?? f.amount?.integerValue ?? 0);
-          const rate = Number(f.rate?.doubleValue ?? f.rate?.integerValue ?? 1);
-          const amountBase =
-            f.amountBase?.doubleValue !== undefined || f.amountBase?.integerValue !== undefined
-              ? Number(f.amountBase.doubleValue ?? f.amountBase.integerValue)
-              : amount * rate;
+      const nextExpenses = (expensesData.documents || []).map(doc => {
+        const f = doc.fields || {};
+        const amount = Number(f.amount?.doubleValue ?? f.amount?.integerValue ?? 0);
+        const rate = Number(f.rate?.doubleValue ?? f.rate?.integerValue ?? 1);
+        const amountBase =
+          f.amountBase?.doubleValue !== undefined || f.amountBase?.integerValue !== undefined
+            ? Number(f.amountBase.doubleValue ?? f.amountBase.integerValue)
+            : amount * rate;
 
-          return {
-            id: doc.name,
-            what: f.what?.stringValue || '',
-            amount,
-            currency: f.currency?.stringValue || BASE_CURRENCY,
-            rate,
-            amountBase,
-            category: f.category?.stringValue || 'other',
-            payer: f.payer?.stringValue || '',
-            split: (f.split?.arrayValue?.values || []).map(v => v.stringValue),
-            addedByName: f.addedByName?.stringValue || '',
-            addedByCharacter: f.addedByCharacter?.stringValue || '',
-          };
-        })
-      );
+        return {
+          id: doc.name,
+          what: f.what?.stringValue || '',
+          amount,
+          currency: f.currency?.stringValue || LEGACY_BASE,
+          rate,
+          amountBase,
+          baseCurrency: f.baseCurrency?.stringValue || LEGACY_BASE,
+          category: f.category?.stringValue || 'other',
+          payer: f.payer?.stringValue || '',
+          split: (f.split?.arrayValue?.values || []).map(v => v.stringValue),
+          addedByName: f.addedByName?.stringValue || '',
+          addedByCharacter: f.addedByCharacter?.stringValue || '',
+        };
+      });
+      setExpenses(nextExpenses);
+      store.set('cache-expenses', nextExpenses);
     } catch (error) {
-      console.error('Error loading expenses:', error);
+      if (!isNetworkError(error)) console.error('Error loading expenses:', error);
     }
   }, [authToken]);
 
-  useEffect(() => {
-    if (!authToken) return;
-    loadAll();
-    const timer = setInterval(loadAll, 5000);
-    return () => clearInterval(timer);
+  // Sends the expenses saved on this phone, one by one. Whatever fails stays in the list
+  // and is tried again later.
+  const flushing = useRef(false);
+  const flush = useCallback(async () => {
+    if (flushing.current || !authToken || !isOnlineNow()) return;
+    flushing.current = true;
+    let sent = 0;
+
+    try {
+      for (const item of [...pendingRef.current]) {
+        try {
+          await firestoreFetch(
+            `${FIRESTORE_BASE}/expenses?documentId=${item.docId}`,
+            authToken,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fields: toFields(item) }),
+            }
+          );
+        } catch (error) {
+          // 409 = this one was already saved (the reply got lost), so it counts as sent
+          if (!String(error.message).includes('(409)')) throw error;
+        }
+        updatePending(list => list.filter(p => p.docId !== item.docId));
+        sent += 1;
+      }
+    } catch (error) {
+      if (!isNetworkError(error)) console.error('Error syncing expenses:', error);
+    } finally {
+      flushing.current = false;
+    }
+
+    if (sent) loadAll();
   }, [authToken, loadAll]);
+
+  // On open, every 5 seconds, and straight away when the signal comes back
+  useEffect(() => {
+    if (!authToken) return undefined;
+    const run = async () => {
+      await flush();
+      await loadAll();
+    };
+    run();
+    const timer = setInterval(run, 5000);
+    return () => clearInterval(timer);
+  }, [authToken, flush, loadAll, online]);
+
+  // Remember today's exchange rates so they can still be used offline
+  useEffect(() => {
+    if (online) getRate(base, 'USD');
+  }, [online, base]);
 
   // Rate for the form: live rate, or the saved rate when editing with the same currency
   useEffect(() => {
-    if (!showForm) return;
+    if (!showForm) return undefined;
 
-    if (currency === BASE_CURRENCY) {
+    if (currency === base) {
       setRate('1');
       setRateNote('');
-      return;
+      return undefined;
     }
 
     if (editOrig && currency === editOrig.currency) {
       setRate(String(editOrig.rate));
       setRateNote('Saved rate for this expense. Edit it if needed.');
-      return;
+      return undefined;
     }
 
     let active = true;
     setRateNote('Fetching rate...');
 
-    fetch(`https://open.er-api.com/v6/latest/${currency}`)
-      .then(r => r.json())
-      .then(data => {
-        if (!active) return;
-        const r = data.rates && data.rates[BASE_CURRENCY];
-        if (r) {
-          setRate(String(Number(r.toPrecision(5))));
-          setRateNote('Live rate. Edit it if your bank or card rate differs.');
-        } else {
-          setRate('');
-          setRateNote('Could not get the rate. Please type it in.');
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setRate('');
-          setRateNote('Could not get the rate. Please type it in.');
-        }
-      });
+    getRate(currency, base).then(({ rate: r, cached }) => {
+      if (!active) return;
+      if (r) {
+        setRate(String(Number(r.toPrecision(5))));
+        setRateNote(
+          cached
+            ? 'Offline: using the last saved rate. Edit it if your bank or card rate differs.'
+            : 'Live rate. Edit it if your bank or card rate differs.'
+        );
+      } else {
+        setRate('');
+        setRateNote('Could not get the rate. Please type it in.');
+      }
+    });
 
     return () => {
       active = false;
     };
-  }, [currency, showForm, editOrig]);
+  }, [currency, showForm, editOrig, base]);
 
   // Rate for showing the totals in another currency
   useEffect(() => {
-    if (displayCurrency === BASE_CURRENCY) {
+    if (displayCurrency === base) {
       setDisplayRate(1);
       setDisplayNote('');
-      return;
+      return undefined;
     }
 
     let active = true;
     setDisplayRate(null);
     setDisplayNote('Fetching rate...');
 
-    fetch(`https://open.er-api.com/v6/latest/${BASE_CURRENCY}`)
-      .then(r => r.json())
-      .then(data => {
-        if (!active) return;
-        const r = data.rates && data.rates[displayCurrency];
-        if (r) {
-          setDisplayRate(r);
-          setDisplayNote(
-            `1 ${BASE_CURRENCY} = ${Number(r.toPrecision(5))} ${displayCurrency} (live rate)`
-          );
-        } else {
-          setDisplayNote('Could not get the rate, showing ' + BASE_CURRENCY + '.');
-        }
-      })
-      .catch(() => {
-        if (active) setDisplayNote('Could not get the rate, showing ' + BASE_CURRENCY + '.');
-      });
+    getRate(base, displayCurrency).then(({ rate: r, cached }) => {
+      if (!active) return;
+      if (r) {
+        setDisplayRate(r);
+        setDisplayNote(
+          `1 ${base} = ${Number(r.toPrecision(5))} ${displayCurrency} (${
+            cached ? 'last saved rate' : 'live rate'
+          })`
+        );
+      } else {
+        setDisplayNote('Could not get the rate, showing ' + base + '.');
+      }
+    });
 
     return () => {
       active = false;
     };
-  }, [displayCurrency]);
+  }, [displayCurrency, base]);
+
+  // Expenses on screen = saved ones + the ones still waiting to be sent
+  const savedIds = new Set(expenses.map(e => e.id.split('/').pop()));
+  const waiting = pending
+    .filter(p => !savedIds.has(p.docId))
+    .map(p => ({
+      id: PENDING_PREFIX + p.docId,
+      pending: true,
+      what: p.what,
+      amount: p.amount,
+      currency: p.currency,
+      rate: p.rate,
+      amountBase: p.amountBase,
+      baseCurrency: p.baseCurrency || base,
+      category: 'other',
+      payer: p.payer,
+      split: p.split,
+      addedByName: p.addedByName,
+      addedByCharacter: p.addedByCharacter,
+    }))
+    .reverse();
+  const rawExpenses = [...waiting, ...expenses];
+
+  // If the trip currency was changed after some expenses were saved, those expenses are
+  // converted into the current trip currency (live rate, or the last saved one when offline)
+  const [oldBaseRates, setOldBaseRates] = useState({});
+  const otherBases = [...new Set(rawExpenses.map(e => e.baseCurrency).filter(c => c && c !== base))];
+  const otherKey = otherBases.join(',');
+  useEffect(() => {
+    let active = true;
+    otherBases.forEach(code => {
+      getRate(code, base).then(({ rate: r }) => {
+        if (active && r) {
+          setOldBaseRates(prev => (prev[`${code}>${base}`] === r ? prev : { ...prev, [`${code}>${base}`]: r }));
+        }
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [otherKey, base]);
+
+  const allExpenses = rawExpenses.map(e => {
+    if (e.baseCurrency === base) return e;
+    if (e.currency === base) return { ...e, amountBase: e.amount, baseCurrency: base, converted: true };
+    const r = oldBaseRates[`${e.baseCurrency}>${base}`];
+    return { ...e, amountBase: r ? e.amountBase * r : e.amountBase, baseCurrency: base, converted: true };
+  });
 
   const scrollTop = () => {
     if (scrollRef.current) scrollRef.current.scrollTo({ y: 0, animated: true });
@@ -206,7 +342,7 @@ export default function ExpensesScreen({ authToken, profile }) {
     setEditOrig(null);
     setWhat('');
     setAmount('');
-    setCurrency(BASE_CURRENCY);
+    setCurrency(base); // new expenses start in the local (trip) currency
     setRate('1');
     setRateNote('');
     setPayer(profile.name);
@@ -217,7 +353,8 @@ export default function ExpensesScreen({ authToken, profile }) {
 
   const startEdit = expense => {
     setEditingId(expense.id);
-    setEditOrig({ currency: expense.currency, rate: expense.rate });
+    // a saved rate is only reusable if it was against the current trip currency
+    setEditOrig(expense.converted ? null : { currency: expense.currency, rate: expense.rate });
     setWhat(expense.what);
     setAmount(String(expense.amount));
     setCurrency(expense.currency);
@@ -250,6 +387,11 @@ export default function ExpensesScreen({ authToken, profile }) {
       ? numericAmount * numericRate
       : 0;
 
+  const needsSignal = () =>
+    alert(
+      "You're offline. New expenses are saved on this phone and sent later, but changing or deleting an expense that is already saved needs a connection."
+    );
+
   const saveExpense = async () => {
     if (
       !what.trim() ||
@@ -266,22 +408,40 @@ export default function ExpensesScreen({ authToken, profile }) {
       return;
     }
 
-    const fields = {
-      what: { stringValue: what.trim() },
-      amount: { doubleValue: numericAmount },
-      currency: { stringValue: currency },
-      rate: { doubleValue: numericRate },
-      amountBase: { doubleValue: numericAmount * numericRate },
-      payer: { stringValue: payer },
-      split: {
-        arrayValue: {
-          values: split.map(name => ({ stringValue: name })),
-        },
-      },
+    const values = {
+      what: what.trim(),
+      amount: numericAmount,
+      currency,
+      rate: numericRate,
+      amountBase: numericAmount * numericRate,
+      baseCurrency: base,
+      payer,
+      split,
     };
 
-    try {
-      if (editingId) {
+    // Editing one that is still waiting on this phone: just update it there
+    if (editingId && editingId.startsWith(PENDING_PREFIX)) {
+      const docId = editingId.slice(PENDING_PREFIX.length);
+      updatePending(list => list.map(p => (p.docId === docId ? { ...p, ...values } : p)));
+      closeForm();
+      flush();
+      return;
+    }
+
+    // Editing one that is already saved: needs a connection
+    if (editingId) {
+      const fields = {
+        what: { stringValue: values.what },
+        amount: { doubleValue: values.amount },
+        currency: { stringValue: values.currency },
+        rate: { doubleValue: values.rate },
+        amountBase: { doubleValue: values.amountBase },
+        baseCurrency: { stringValue: base },
+        payer: { stringValue: values.payer },
+        split: { arrayValue: { values: values.split.map(name => ({ stringValue: name })) } },
+      };
+
+      try {
         // Editing: only change these fields, keep "Added by" as it was
         const mask = Object.keys(fields)
           .map(key => `updateMask.fieldPaths=${key}`)
@@ -296,30 +456,42 @@ export default function ExpensesScreen({ authToken, profile }) {
             body: JSON.stringify({ fields }),
           }
         );
-      } else {
-        await firestoreFetch(`${FIRESTORE_BASE}/expenses`, authToken, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fields: {
-              ...fields,
-              category: { stringValue: 'other' },
-              addedByName: { stringValue: profile.name },
-              addedByCharacter: { stringValue: profile.character },
-            },
-          }),
-        });
+        closeForm();
+        await loadAll();
+      } catch (error) {
+        if (isNetworkError(error) || !isOnlineNow()) {
+          needsSignal();
+        } else {
+          console.error('Error saving expense:', error);
+          alert('Could not save expense.');
+        }
       }
-
-      closeForm();
-      await loadAll();
-    } catch (error) {
-      console.error('Error saving expense:', error);
-      alert('Could not save expense.');
+      return;
     }
+
+    // New expense: saved on this phone first, then sent. Works with no signal.
+    updatePending(list => [
+      ...list,
+      {
+        docId: newDocId(),
+        ...values,
+        addedByName: profile.name,
+        addedByCharacter: profile.character,
+      },
+    ]);
+    closeForm();
+    flush();
   };
 
   const deleteExpense = async id => {
+    // Still waiting on this phone: just remove it
+    if (id.startsWith(PENDING_PREFIX)) {
+      const docId = id.slice(PENDING_PREFIX.length);
+      updatePending(list => list.filter(p => p.docId !== docId));
+      if (id === editingId) closeForm();
+      return;
+    }
+
     try {
       await firestoreFetch(
         `https://firestore.googleapis.com/v1/${id}`,
@@ -329,8 +501,12 @@ export default function ExpensesScreen({ authToken, profile }) {
       if (id === editingId) closeForm();
       await loadAll();
     } catch (error) {
-      console.error('Error deleting expense:', error);
-      alert('Could not delete expense.');
+      if (isNetworkError(error) || !isOnlineNow()) {
+        needsSignal();
+      } else {
+        console.error('Error deleting expense:', error);
+        alert('Could not delete expense.');
+      }
     }
   };
 
@@ -338,7 +514,7 @@ export default function ExpensesScreen({ authToken, profile }) {
   const calculateTransfers = () => {
     const balances = {};
 
-    expenses.forEach(expense => {
+    allExpenses.forEach(expense => {
       if (!expense.split.length) return;
       const share = expense.amountBase / expense.split.length;
 
@@ -378,7 +554,7 @@ export default function ExpensesScreen({ authToken, profile }) {
   const buildPaid = () => {
     const paid = {};
     const share = {};
-    expenses.forEach(expense => {
+    allExpenses.forEach(expense => {
       paid[expense.payer] = (paid[expense.payer] || 0) + expense.amountBase;
       if (!expense.split.length) return;
       const each = expense.amountBase / expense.split.length;
@@ -398,16 +574,16 @@ export default function ExpensesScreen({ authToken, profile }) {
   };
 
   const factor = displayRate || 1;
-  const shownCurrency = displayRate ? displayCurrency : BASE_CURRENCY;
+  const shownCurrency = displayRate ? displayCurrency : base;
   const show = n => money(n * factor);
 
   const transfers = calculateTransfers();
   const paidRows = buildPaid();
-  const totalSpent = expenses.reduce((sum, e) => sum + e.amountBase, 0);
+  const totalSpent = allExpenses.reduce((sum, e) => sum + e.amountBase, 0);
   const characterOf = name => members.find(m => m.name === name)?.character;
   // the person who is furthest behind on paying their share
   const behind = paidRows.reduce((low, r) => (!low || r.balance < low.balance ? r : low), null);
-  const nextPayer = expenses.length && behind && behind.balance < -0.005 ? behind : null;
+  const nextPayer = allExpenses.length && behind && behind.balance < -0.005 ? behind : null;
 
   const memberItems = members.map(m => [m.name, m.name]);
 
@@ -425,6 +601,19 @@ export default function ExpensesScreen({ authToken, profile }) {
             <Text style={ui.h2}>Expenses</Text>
             <Text style={ui.sub}>See what you spent and settle up together.</Text>
           </View>
+
+          {!online || pending.length > 0 ? (
+            <View style={[ui.notice, { marginTop: 12 }]}>
+              <Text style={ui.noticeText}>
+                {!online
+                  ? "📴 You're offline. New expenses are saved on this phone and sent when you're back online."
+                  : '🔄 Sending your saved expenses...'}
+                {pending.length > 0
+                  ? `\n⏳ ${pending.length} expense${pending.length === 1 ? '' : 's'} waiting to sync.`
+                  : ''}
+              </Text>
+            </View>
+          ) : null}
 
           <View style={[ui.row, { marginTop: 12 }]}>
             {members.map(member => (
@@ -453,7 +642,7 @@ export default function ExpensesScreen({ authToken, profile }) {
 
           <Text style={ui.label}>Show totals in</Text>
           <Pills
-            items={CURRENCIES.map(code => [code, code])}
+            items={currencyList.map(code => [code, code])}
             selected={id => displayCurrency === id}
             onPress={setDisplayCurrency}
           />
@@ -470,7 +659,7 @@ export default function ExpensesScreen({ authToken, profile }) {
             {transfers.length === 0 ? (
               <View style={ui.notice}>
                 <Text style={ui.noticeText}>
-                  {expenses.length === 0 ? 'No balances to settle yet.' : 'Everyone is settled up! 🎉'}
+                  {allExpenses.length === 0 ? 'No balances to settle yet.' : 'Everyone is settled up! 🎉'}
                 </Text>
               </View>
             ) : (
@@ -487,7 +676,7 @@ export default function ExpensesScreen({ authToken, profile }) {
 
           <View style={ui.panel}>
             <Text style={ui.h3}>Who paid what</Text>
-            {expenses.length === 0 ? (
+            {allExpenses.length === 0 ? (
               <View style={ui.notice}>
                 <Text style={ui.noticeText}>Add an expense to see who has paid what.</Text>
               </View>
@@ -540,9 +729,9 @@ export default function ExpensesScreen({ authToken, profile }) {
 
         {/* All expenses */}
         <View style={ui.card}>
-          <Text style={ui.h3}>All expenses ({expenses.length})</Text>
+          <Text style={ui.h3}>All expenses ({allExpenses.length})</Text>
 
-          {expenses.length === 0 && (
+          {allExpenses.length === 0 && (
             <View style={ui.notice}>
               <Text style={ui.noticeText}>
                 No expenses yet. Add one above to start splitting costs.
@@ -550,7 +739,7 @@ export default function ExpensesScreen({ authToken, profile }) {
             </View>
           )}
 
-          {expenses.map(expense => (
+          {allExpenses.map(expense => (
             <View key={expense.id} style={ui.listCard}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={[ui.strong, { flex: 1, marginRight: 8 }]}>
@@ -561,9 +750,13 @@ export default function ExpensesScreen({ authToken, profile }) {
                 </Text>
               </View>
 
-              {expense.currency !== BASE_CURRENCY ? (
+              {expense.pending ? (
+                <Text style={[ui.sub, { fontWeight: '800' }]}>⏳ Waiting to sync</Text>
+              ) : null}
+
+              {expense.currency !== base ? (
                 <Text style={ui.sub}>
-                  ≈ {BASE_CURRENCY} {money(expense.amountBase)} (rate {expense.rate})
+                  ≈ {base} {money(expense.amountBase)}{expense.converted ? '' : ` (rate ${expense.rate})`}
                 </Text>
               ) : null}
 
@@ -627,12 +820,12 @@ export default function ExpensesScreen({ authToken, profile }) {
 
               <Text style={ui.label}>Currency</Text>
               <Pills
-                items={CURRENCIES.map(code => [code, code])}
+                items={currencyList.map(code => [code, code])}
                 selected={id => currency === id}
                 onPress={setCurrency}
               />
 
-              {currency !== BASE_CURRENCY && (
+              {currency !== base && (
                 <View>
                   <View style={[ui.row, { marginTop: 4 }]}>
                     <Text style={[ui.sub, { marginTop: 0, marginRight: 8 }]}>1 {currency} =</Text>
@@ -644,12 +837,12 @@ export default function ExpensesScreen({ authToken, profile }) {
                       placeholder="rate"
                       placeholderTextColor="#8a9ca6"
                     />
-                    <Text style={[ui.sub, { marginTop: 0, marginLeft: 8 }]}>{BASE_CURRENCY}</Text>
+                    <Text style={[ui.sub, { marginTop: 0, marginLeft: 8 }]}>{base}</Text>
                   </View>
                   {rateNote ? <Text style={ui.hint}>{rateNote}</Text> : null}
                   {previewBase > 0 ? (
                     <Text style={[ui.hint, { color: P.ink, fontWeight: '800' }]}>
-                      ≈ {BASE_CURRENCY} {money(previewBase)}
+                      ≈ {base} {money(previewBase)}
                     </Text>
                   ) : null}
                 </View>

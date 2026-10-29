@@ -25,6 +25,7 @@ import ItineraryScreen from './ItineraryScreen';
 import Avatar from './Avatar';
 import ProfileScreen from './ProfileScreen';
 import ProfileSetupScreen from './ProfileSetupScreen';
+import { store, useOnline } from './offline';
 import { TripProvider } from './trip';
 import HomeScreen from './HomeScreen';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
@@ -44,11 +45,14 @@ const TABS = [
 ];
 
 export default function App() {
+  const online = useOnline();
   const [authToken, setAuthToken] = useState(null);
   const [uid, setUid] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [profile, setProfile] = useState(null);
   const [profileReady, setProfileReady] = useState(false);
+  // Default currency: { place: 'Hong Kong', currency: 'HKD' } or null (= the trip currency)
+  const [home, setHome] = useState(null);
   const [tab, setTabState] = useState(() => {
     try {
       if (Platform.OS === 'web') return sessionStorage.getItem('app-tab') || 'home';
@@ -160,6 +164,32 @@ export default function App() {
     setLoginInfo('If that email has an account, a reset link is on its way. Check your spam folder too.');
   };
 
+  // Saves the default currency: on this phone straight away, and on the profile in the database.
+  // The mask means only these two fields change, name and character are not touched.
+  const saveHome = async next => {
+    setHome(next);
+    store.set(`home-${uid}`, next);
+
+    try {
+      const fields = {
+        homePlace: { stringValue: next ? next.place : '' },
+        homeCurrency: { stringValue: next ? next.currency : '' },
+      };
+      const mask = Object.keys(fields)
+        .map(key => `updateMask.fieldPaths=${key}`)
+        .join('&');
+
+      await firestoreFetch(`${FIRESTORE_BASE}/profiles/${uid}?${mask}`, authToken, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields }),
+      });
+    } catch (error) {
+      // Still saved on this phone, so it keeps working
+      console.error('Error saving default currency:', error);
+    }
+  };
+
   // Phone-friendly web setup: fit the screen, no zoom, bottom bar stays put
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return undefined;
@@ -197,6 +227,41 @@ export default function App() {
     };
   }, []);
 
+  // Offline: saves the app's own files (public/sw.js) so it can open with no signal
+  useEffect(() => {
+    if (
+      Platform.OS !== 'web' ||
+      typeof navigator === 'undefined' ||
+      !('serviceWorker' in navigator) ||
+      typeof window === 'undefined'
+    ) {
+      return undefined;
+    }
+
+    const register = async () => {
+      try {
+        await navigator.serviceWorker.register('/sw.js');
+        const ready = await navigator.serviceWorker.ready;
+        // Tell the worker which files this page loaded, so even the first visit is saved
+        const urls = [
+          window.location.origin + '/',
+          ...performance
+            .getEntriesByType('resource')
+            .map(entry => entry.name)
+            .filter(name => name.startsWith(window.location.origin)),
+        ];
+        if (ready.active) ready.active.postMessage({ type: 'cache-urls', urls });
+      } catch (error) {
+        // no service worker (for example public/sw.js is missing): the app still works online
+      }
+    };
+
+    if (document.readyState === 'complete') register();
+    else window.addEventListener('load', register, { once: true });
+
+    return () => window.removeEventListener('load', register);
+  }, []);
+
   // Keeps the login token and user id up to date
   useEffect(() => {
     let active = true;
@@ -212,10 +277,18 @@ export default function App() {
         } else if (active) {
           setAuthToken(null);
           setUid(null);
+          // Logged out: forget the saved copy of the trip data on this device
+          store.clear(['fs:', 'cache-']);
         }
       } catch (error) {
         console.error('Error restoring login:', error);
-        if (active) {
+        if (!active) return;
+        if (user) {
+          // The login is still valid, we just cannot refresh it with no signal.
+          // Stay signed in and use the saved data; the token is refreshed when back online.
+          setUid(user.uid);
+          setAuthToken(previous => previous || 'offline');
+        } else {
           setAuthToken(null);
           setUid(null);
         }
@@ -230,15 +303,32 @@ export default function App() {
     };
   }, []);
 
-  // Loads this person's name + character once they are logged in
+  // When the signal comes back, get a fresh login token straight away
+  useEffect(() => {
+    if (!online) return;
+    const user = auth.currentUser;
+    if (!user) return;
+    user
+      .getIdToken(true)
+      .then(token => setAuthToken(token))
+      .catch(() => {
+        // still no real connection: the next 'online' will try again
+      });
+  }, [online]);
+
+  // Loads this person's name + character (and default currency) once they are logged in
   useEffect(() => {
     if (!authToken || !uid) {
       setProfile(null);
       setProfileReady(false);
+      setHome(null);
       return;
     }
 
     let active = true;
+
+    // Default currency from this phone first, so it is there even before the database answers
+    setHome(store.get(`home-${uid}`, null));
 
     (async () => {
       try {
@@ -247,18 +337,33 @@ export default function App() {
           authToken
         );
         const doc = await response.json();
+        const next = {
+          name: doc.fields?.name?.stringValue || '',
+          character: doc.fields?.character?.stringValue || 'fox',
+        };
+        store.set(`profile-${uid}`, next);
+
         if (active) {
-          setProfile({
-            name: doc.fields?.name?.stringValue || '',
-            character: doc.fields?.character?.stringValue || 'fox',
-          });
+          setProfile(next);
+
+          if (doc.fields?.homeCurrency) {
+            const code = doc.fields.homeCurrency.stringValue;
+            const saved = code
+              ? { place: doc.fields?.homePlace?.stringValue || '', currency: code }
+              : null;
+            setHome(saved);
+            store.set(`home-${uid}`, saved);
+          }
         }
       } catch (error) {
         // 404 just means "no profile yet", which is normal the first time
-        if (!String(error.message).includes('(404)')) {
+        if (String(error.message).includes('(404)')) {
+          if (active) setProfile(null);
+        } else {
           console.error('Error loading profile:', error);
+          // No signal or a hiccup: use the profile saved on this phone so the app still opens
+          if (active) setProfile(store.get(`profile-${uid}`, null));
         }
-        if (active) setProfile(null);
       } finally {
         if (active) setProfileReady(true);
       }
@@ -381,6 +486,14 @@ export default function App() {
   return (
     <TripProvider authToken={authToken}>
       <View style={{ flex: 1, backgroundColor: colors.background }}>
+        {!online && (
+          <View style={styles.offlineBar}>
+            <Text style={styles.offlineText}>
+              📴 Offline: showing your last saved data. New expenses are saved and sent later;
+              other changes need a connection.
+            </Text>
+          </View>
+        )}
         <View style={{ flex: 1 }}>
           {tab === 'home' ? (
             <HomeScreen
@@ -404,9 +517,20 @@ export default function App() {
               onOpenBookings={() => setTab('bookings')}
             />
           ) : tab === 'expenses' ? (
-            <ExpensesScreen authToken={authToken} profile={profile} />
+            <ExpensesScreen
+              authToken={authToken}
+              profile={profile}
+              defaultCurrency={home ? home.currency : null}
+            />
           ) : (
-            <ProfileScreen authToken={authToken} profile={profile} uid={uid} onSaved={setProfile} />
+            <ProfileScreen
+              authToken={authToken}
+              profile={profile}
+              uid={uid}
+              onSaved={setProfile}
+              home={home}
+              onHomeChange={saveHome}
+            />
           )}
 
           <TouchableOpacity style={styles.meBtn} onPress={() => setTab('me')}>
@@ -499,6 +623,16 @@ const styles = StyleSheet.create({
     right: 12,
     zIndex: 20,
   },
+  offlineBar: {
+    backgroundColor: '#263a48',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    ...Platform.select({
+      web: { paddingTop: 'calc(6px + env(safe-area-inset-top))' },
+      default: {},
+    }),
+  },
+  offlineText: { color: '#fff', fontSize: 12, fontWeight: '700', textAlign: 'center' },
   loginInfo: { color: colors.success, marginTop: 14, textAlign: 'center' },
   forgotText: { color: colors.primary, textAlign: 'center', fontSize: 14 },
 });

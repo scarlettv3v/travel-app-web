@@ -14,10 +14,12 @@ import { useTrip, dayCount, MAX_DAYS } from './trip';
 import DatePicker, { formatDate } from './DatePicker';
 import AvatarEditor from './AvatarEditor';
 import { decodeLook, encodeLook } from './Avatar';
+import { LOCATIONS, currencyForDestination } from './DefaultCurrency';
 
 const INK = '#263a48';
 
-export default function ProfileScreen({ authToken, profile, uid, onSaved }) {
+// home: { place, currency } or null.  onHomeChange(next) saves it (null = use the trip currency)
+export default function ProfileScreen({ authToken, profile, uid, onSaved, home, onHomeChange }) {
   const trip = useTrip();
   const [section, setSection] = useState('profile'); // 'profile' | 'trip'
 
@@ -74,6 +76,8 @@ export default function ProfileScreen({ authToken, profile, uid, onSaved }) {
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [tripMsg, setTripMsg] = useState('');
+  const [homeMsg, setHomeMsg] = useState('');
+  const [homeOpen, setHomeOpen] = useState(false); // is the default currency dropdown open?
 
   const searchPlace = async () => {
     if (!q.trim()) return;
@@ -97,6 +101,12 @@ export default function ProfileScreen({ authToken, profile, uid, onSaved }) {
   const pickPlace = r => {
     const text = [r.name, r.admin1, r.country].filter(Boolean).join(', ');
     setDraft(d => ({ ...d, destination: text, latitude: r.latitude, longitude: r.longitude }));
+    const cur = currencyForDestination(text);
+    setTripMsg(
+      cur
+        ? `Trip currency will be ${cur} once you tap "Save trip settings".`
+        : 'Currency for this country is not in the list yet, so NZD is used. Tell me and I will add it.'
+    );
     setResults([]);
     setQ('');
   };
@@ -121,6 +131,14 @@ export default function ProfileScreen({ authToken, profile, uid, onSaved }) {
       longitude: draft.longitude,
     });
     setTripMsg(ok ? 'Saved ✓' : 'Could not save the trip. Please try again.');
+  };
+
+  // Default currency is personal and saves as soon as you tap
+  const chooseHome = location => {
+    if (!onHomeChange) return;
+    onHomeChange(location ? { place: location[0], currency: location[1] } : null);
+    setHomeMsg('Saved ✓');
+    setHomeOpen(false);
   };
 
   return (
@@ -217,6 +235,50 @@ export default function ProfileScreen({ authToken, profile, uid, onSaved }) {
           <TouchableOpacity style={[s.saveBtn, { marginTop: 14 }]} onPress={saveTripSettings}>
             <Text style={s.btnText}>Save trip settings</Text>
           </TouchableOpacity>
+
+          {/* Default currency: just for you, saves as soon as you tap */}
+          <View style={s.divider} />
+          <Text style={[s.label, { marginTop: 0 }]}>💱 Your default currency</Text>
+          <Text style={s.sub}>
+            Just for you, others keep their own. Totals on the Expenses page are shown in this currency.
+          </Text>
+          <TouchableOpacity
+            style={[s.input, s.dropdown, { marginTop: 8 }]}
+            onPress={() => setHomeOpen(o => !o)}
+          >
+            <Text style={s.inputText}>
+              {home ? `${home.currency} (${home.place})` : `${trip.currency} (trip currency)`}
+            </Text>
+            <Text style={s.inputText}>{homeOpen ? '▲' : '▼'}</Text>
+          </TouchableOpacity>
+
+          {homeOpen && (
+            <View style={s.menu}>
+              <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled>
+                <TouchableOpacity style={s.menuItem} onPress={() => chooseHome(null)}>
+                  <Text style={s.menuText}>
+                    {!home ? '✓ ' : ''}Trip currency ({trip.currency})
+                  </Text>
+                </TouchableOpacity>
+                {LOCATIONS.map(location => {
+                  const on = !!home && home.place === location[0];
+                  return (
+                    <TouchableOpacity
+                      key={location[0]}
+                      style={[s.menuItem, on && s.menuItemOn]}
+                      onPress={() => chooseHome(location)}
+                    >
+                      <Text style={s.menuText}>
+                        {on ? '✓ ' : ''}
+                        {location[1]} · {location[0]}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+          {homeMsg ? <Text style={s.msg}>{homeMsg}</Text> : null}
         </View>
       )}
 
@@ -299,6 +361,24 @@ const s = StyleSheet.create({
     padding: 10,
     marginTop: 8,
   },
+  divider: { height: 2, backgroundColor: '#b6cfc3', marginVertical: 20 },
+  dropdown: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  menu: {
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: INK,
+    borderRadius: 11,
+    marginTop: 6,
+    overflow: 'hidden',
+  },
+  menuItem: {
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e1ece6',
+  },
+  menuItemOn: { backgroundColor: '#ffe1aa' },
+  menuText: { color: INK, fontWeight: '700', fontSize: 14 },
   btnText: { color: INK, fontWeight: '800', fontSize: 14 },
   logout: {
     alignSelf: 'center',

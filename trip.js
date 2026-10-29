@@ -1,7 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
+import { formatRange, formatShort } from './dateFormat';
+import { BASE_CURRENCY } from './expenseOptions';
+import { currencyForDestination } from './DefaultCurrency';
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// Re-exported so any screen that imports formatRange from './trip' keeps working
+export { formatRange };
+
 const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -40,21 +45,19 @@ export function buildDays(start, end) {
     days.push({
       iso: toIso(t),
       dayNumber: days.length + 1,
-      short: `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`,
+      short: formatShort(toIso(t)), // e.g. "Nov 21"
       weekday: WEEKDAYS[d.getUTCDay()],
     });
   }
   return days;
 }
 
-export function formatRange(start, end) {
-  const [, sm, sd] = start.split('-').map(Number);
-  const [ey, em, ed] = end.split('-').map(Number);
-  return `${sd} ${MONTHS[sm - 1]} – ${ed} ${MONTHS[em - 1]} ${ey}`;
-}
+// The trip currency follows the Destination automatically (NZD if the country is not recognised)
+const tripCurrency = destination => currencyForDestination(destination) || BASE_CURRENCY;
 
 const TripContext = createContext({
   ...DEFAULTS,
+  currency: tripCurrency(DEFAULTS.destination),
   label: formatRange(DEFAULTS.start, DEFAULTS.end),
   days: buildDays(DEFAULTS.start, DEFAULTS.end),
   saveTrip: async () => false,
@@ -137,6 +140,7 @@ export function TripProvider({ authToken, children }) {
   const value = useMemo(
     () => ({
       ...trip,
+      currency: tripCurrency(trip.destination),
       label: formatRange(trip.start, trip.end),
       days: buildDays(trip.start, trip.end),
       saveTrip,

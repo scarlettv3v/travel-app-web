@@ -1,4 +1,5 @@
 import { Platform, Linking } from 'react-native';
+import { isOnlineNow } from './offline';
 
 // Google Maps helpers. No built-in maps: we save the address as text and let Google find the place.
 
@@ -13,6 +14,11 @@ const isMobileWeb = () =>
 // On a phone's browser, open in the same tab so Google Maps (or its app) opens directly and
 // you come back with the Back button, with no extra tab to close. On a computer, a new tab.
 export const openExternal = url => {
+  // Opening Maps with no signal would leave the app on a "no internet" page
+  if (!isOnlineNow()) {
+    alert('Google Maps needs an internet connection. Try again when you are back online.');
+    return;
+  }
   if (Platform.OS === 'web') {
     if (isMobileWeb()) window.location.assign(url);
     else window.open(url, '_blank', 'noopener,noreferrer');
@@ -23,16 +29,15 @@ export const openExternal = url => {
 
 const openUrl = openExternal;
 
-// "Name, address" as one search text (no doubling when the address already starts with the name)
+// What Google gets searched for: the ADDRESS ONLY.
+// Adding the place name changed Google's results in testing, so the name is
+// only used as a fallback when a spot has no address saved.
 function placeText({ name, address }) {
-  const n = (name || '').trim();
   const a = (address || '').trim();
-  if (n && a && !a.toLowerCase().startsWith(n.toLowerCase())) return `${n}, ${a}`;
-  return a || n;
+  return a || (name || '').trim();
 }
 
-// Opens the place in Google Maps as a search by name and address,
-// so Google shows the real listing (reviews, photos, hours).
+// Opens the place in Google Maps as a search by address.
 export function openPlace({ name, address }) {
   const text = placeText({ name, address });
   if (!text) return;
@@ -40,7 +45,7 @@ export function openPlace({ name, address }) {
 }
 
 // Opens a driving route through several places, in order, in Google Maps.
-// stops: [{ name, address }]
+// stops: [{ name, address }]  (addresses are used, not names)
 export function openRoute(stops) {
   const texts = (stops || []).map(placeText).filter(Boolean);
   if (texts.length === 0) return;
