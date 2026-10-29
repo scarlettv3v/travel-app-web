@@ -123,7 +123,7 @@ export default function SpotsScreen({ authToken, profile }) {
             <Text style={ui.sub}>Save a place with its address, then add it to a day.</Text>
           </View>
 
-          <View style={[ui.row, { marginTop: 14 }]}>
+          <View style={[ui.row, { marginTop: 8 }]}>
             <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={() => setAddOpen(true)}>
               <Text style={ui.pillText}>+ Add new spot</Text>
             </TouchableOpacity>
@@ -171,11 +171,11 @@ export default function SpotsScreen({ authToken, profile }) {
                 </View>
                 <View style={{ flex: 1 }} />
                 {place.createdByCharacter ? (
-                  <Avatar characterId={place.createdByCharacter} size={30} />
+                  <Avatar characterId={place.createdByCharacter} size={24} />
                 ) : null}
               </View>
 
-              <Text style={[ui.h3, { marginTop: 8 }]}>{place.name}</Text>
+              <Text style={[ui.h3, { marginTop: 3 }]}>{place.name}</Text>
 
               {place.address ? (
                 <Text style={ui.sub}>📍 {place.address}</Text>
@@ -188,10 +188,10 @@ export default function SpotsScreen({ authToken, profile }) {
               {place.note ? <LinkText style={ui.sub}>{`📝 ${place.note}`}</LinkText> : null}
 
               {place.createdByName ? (
-                <Text style={[ui.sub, { fontSize: 12 }]}>Added by {place.createdByName}</Text>
+                <Text style={[ui.sub, { fontSize: 11 }]}>Added by {place.createdByName}</Text>
               ) : null}
 
-              <View style={[ui.row, { marginTop: 12 }]}>
+              <View style={[ui.row, { marginTop: 6 }]}>
                 <TouchableOpacity
                   style={[ui.pill, ui.pillSmall, ui.pillPrimary]}
                   onPress={() => setPlanningSpot(place)}

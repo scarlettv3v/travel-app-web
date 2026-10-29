@@ -194,7 +194,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
   return (
     <ScrollView
       style={s.screen}
-      contentContainerStyle={{ padding: 15, paddingTop: 44, paddingBottom: 40 }}
+      contentContainerStyle={{ padding: 12, paddingTop: 44, paddingBottom: 24 }}
       keyboardShouldPersistTaps="handled"
     >
       {/* Header */}
@@ -236,10 +236,10 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
                 const isSel = d.iso === selected;
                 const visited = i < todayIndex;
                 const here = isToday
-  ? joinedBy(clamped)
-  : d.iso > clamped
-    ? travelers.filter(t => (t.join || start) === d.iso)
-    : [];
+                  ? joinedBy(clamped)
+                  : d.iso > clamped
+                  ? travelers.filter(t => (t.join || start) === d.iso)
+                  : [];
                 return (
                   <View key={d.iso} style={{ width: colW, alignItems: 'center' }}>
                     <TouchableOpacity
@@ -257,10 +257,10 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
                     <View style={[s.node, (visited || isToday) && s.nodeDone, isSel && s.nodeSel]} />
                     <View style={s.stack}>
                       {here.map(t => (
-  <View key={t.uid} style={!isToday ? { opacity: 0.5 } : null}>
-    <Avatar characterId={t.character} size={avatarSize} />
-  </View>
-))}
+                        <View key={t.uid} style={!isToday ? { opacity: 0.5 } : null}>
+                          <Avatar characterId={t.character} size={avatarSize} />
+                        </View>
+                      ))}
                     </View>
                   </View>
                 );
@@ -272,7 +272,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
         {selectedDay ? (
           <View style={s.notice}>
             <Text style={s.noticeTitle}>
-             {`Day ${selectedDay.dayNumber}\u2009-\u2009${short(selectedDay.iso)} (${selectedDay.weekday})`}
+              {`Day ${selectedDay.dayNumber}\u2009-\u2009${short(selectedDay.iso)} (${selectedDay.weekday})`}
             </Text>
             <Text style={s.sub}>
               {joinedBy(selectedDay.iso).length
@@ -301,11 +301,11 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
           return (
             <View key={t.uid} style={s.travelerRow}>
               <View style={mine ? s.meFrame : null}>
-                <Avatar characterId={t.character} size={32} />
+                <Avatar characterId={t.character} size={28} />
               </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-   <Text style={s.travelerName}>{t.name}{mine ? ' (You)' : ''}</Text>
-             <Text style={s.sub}>{joined ? 'Joined on' : 'Joins on'} {short(join)}</Text>
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={s.travelerName}>{t.name}{mine ? ' (You)' : ''}</Text>
+                <Text style={s.sub}>{joined ? 'Joined on' : 'Joins on'} {short(join)}</Text>
               </View>
               <View style={[s.status, joined && s.statusOn]}>
                 <Text style={s.statusText}>{joined ? 'Joined' : 'Not joined yet'}</Text>
@@ -314,7 +314,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
           );
         })}
         <TouchableOpacity style={s.pill} onPress={() => setPicker('join')}>
-         <Text style={s.pillText}>📅 My join date: {fullDate(myJoin)}</Text>
+          <Text style={s.pillText}>📅 My join date: {fullDate(myJoin)}</Text>
         </TouchableOpacity>
 
       </View>
@@ -360,7 +360,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
           </View>
         </View>
 
-        <Text style={[s.sub, { marginTop: 14 }]}>Local day / night cycle</Text>
+        <Text style={[s.sub, { marginTop: 10 }]}>Local day / night cycle</Text>
         <View style={s.cycleWrap}>
           <View style={s.cycle}>
             <View style={{ flex: riseMin, backgroundColor: '#42627f' }} />
@@ -408,21 +408,24 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
 
 const border = { borderWidth: 2, borderColor: P.ink };
 
+// COMPACT LOOK: spacing and text sizes reduced from the roomier version.
+// The journey path (pathLine, dayBtn, node, stack) and the sky scene are unchanged on purpose,
+// because their positions depend on each other.
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: P.bg },
-  card: { backgroundColor: P.paper, ...border, borderRadius: 22, padding: 16, marginBottom: 16 },
-  kicker: { color: '#52756b', fontSize: 12, letterSpacing: 1.5, marginBottom: 4 },
-  title: { color: P.ink, fontSize: 26, fontWeight: '800', marginBottom: 4 },
-  h2: { color: P.ink, fontSize: 22, fontWeight: '800', marginBottom: 2 },
-  h3: { color: P.ink, fontSize: 18, fontWeight: '800', marginBottom: 2 },
-  sub: { color: P.muted, fontSize: 14, marginTop: 2 },
+  card: { backgroundColor: P.paper, ...border, borderRadius: 18, padding: 12, marginBottom: 10 },
+  kicker: { color: '#52756b', fontSize: 11, letterSpacing: 1.2, marginBottom: 2 },
+  title: { color: P.ink, fontSize: 22, fontWeight: '800', marginBottom: 2 },
+  h2: { color: P.ink, fontSize: 20, fontWeight: '800', marginBottom: 0 },
+  h3: { color: P.ink, fontSize: 16, fontWeight: '800', marginBottom: 0 },
+  sub: { color: P.muted, fontSize: 13, marginTop: 1 },
   tiny: { color: P.muted, fontSize: 11 },
-  hint: { color: '#52756b', fontSize: 12, marginTop: 6 },
-  badge: { alignSelf: 'flex-start', ...border, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12, marginTop: 10, backgroundColor: '#fff' },
-  badgeText: { color: P.ink, fontWeight: '800', fontSize: 12 },
+  hint: { color: '#52756b', fontSize: 11, marginTop: 4 },
+  badge: { alignSelf: 'flex-start', ...border, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10, marginTop: 8, backgroundColor: '#fff' },
+  badgeText: { color: P.ink, fontWeight: '800', fontSize: 11 },
 
   pathLine: { position: 'absolute', top: 73, height: 8, backgroundColor: P.line, ...border, borderRadius: 9 },
- dayBtn: { height: 52, justifyContent: 'center', borderRadius: 14, borderWidth: 2, borderColor: 'transparent', alignItems: 'center' },
+  dayBtn: { height: 52, justifyContent: 'center', borderRadius: 14, borderWidth: 2, borderColor: 'transparent', alignItems: 'center' },
   dayToday: { backgroundColor: P.mint, borderColor: '#54a887' },
   daySel: { backgroundColor: P.sun, borderColor: P.ink },
   dayNum: { color: P.ink, fontWeight: '800', fontSize: 14 },
@@ -432,37 +435,37 @@ const s = StyleSheet.create({
   nodeSel: { backgroundColor: '#ffae79' },
   stack: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginTop: 16, minHeight: 52 },
 
-  notice: { backgroundColor: P.soft, borderWidth: 2, borderColor: P.line, borderRadius: 12, padding: 12, marginTop: 4 },
-  noticeTitle: { color: P.ink, fontWeight: '800', fontSize: 15 },
-  smallBtn: { alignSelf: 'flex-start', marginTop: 8, backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 14 },
-  smallBtnText: { color: P.ink, fontWeight: '800', fontSize: 13 },
-  divider: { borderTopWidth: 2, borderStyle: 'dashed', borderColor: '#afc9bb', marginVertical: 16 },
+  notice: { backgroundColor: P.soft, borderWidth: 2, borderColor: P.line, borderRadius: 10, padding: 9, marginTop: 4 },
+  noticeTitle: { color: P.ink, fontWeight: '800', fontSize: 14 },
+  smallBtn: { alignSelf: 'flex-start', marginTop: 6, backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 12 },
+  smallBtnText: { color: P.ink, fontWeight: '800', fontSize: 12 },
+  divider: { borderTopWidth: 2, borderStyle: 'dashed', borderColor: '#afc9bb', marginVertical: 10 },
 
-  travelerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderStyle: 'dashed', borderColor: '#afc9bb' },
-  travelerName: { color: P.ink, fontWeight: '800', fontSize: 15 },
-  meFrame: { padding: 4, borderWidth: 2, borderColor: '#db7868', borderRadius: 14, backgroundColor: '#fff1d9' },
-  status: { borderWidth: 1, borderColor: '#afc9bb', borderRadius: 999, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#fff' },
+  travelerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderStyle: 'dashed', borderColor: '#afc9bb' },
+  travelerName: { color: P.ink, fontWeight: '800', fontSize: 14 },
+  meFrame: { padding: 3, borderWidth: 2, borderColor: '#db7868', borderRadius: 12, backgroundColor: '#fff1d9' },
+  status: { borderWidth: 1, borderColor: '#afc9bb', borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8, backgroundColor: '#fff' },
   statusOn: { backgroundColor: P.mint },
   statusText: { color: P.ink, fontWeight: '800', fontSize: 11 },
 
-pill: { alignSelf: 'flex-start', backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11, marginTop: 12 },
-  pillText: { color: P.ink, fontWeight: '800', fontSize: 14 },
+  pill: { alignSelf: 'flex-start', backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10, marginTop: 8 },
+  pillText: { color: P.ink, fontWeight: '800', fontSize: 13 },
 
-  scene: { height: 190, ...border, borderRadius: 18, overflow: 'hidden', marginTop: 10 },
+  scene: { height: 190, ...border, borderRadius: 18, overflow: 'hidden', marginTop: 8 },
   hill: { position: 'absolute', bottom: -70, left: '-15%', width: '130%', height: 130, borderRadius: 200, borderWidth: 3, borderColor: P.ink },
   me: { position: 'absolute', bottom: 34, left: '42%' },
   meSleep: { transform: [{ rotate: '-82deg' }], opacity: 0.85 },
   zzz: { position: 'absolute', left: -6, top: -18, fontSize: 22 },
 
-  state: { color: P.ink, fontWeight: '800', fontSize: 16, marginTop: 12 },
-  time: { color: P.ink, fontSize: 44, fontWeight: '800', marginTop: 2 },
-  metrics: { flexDirection: 'row', marginTop: 12 },
-  metric: { flex: 1, ...border, borderRadius: 16, padding: 10, backgroundColor: '#f1f8ed', marginRight: 8 },
-  metricLabel: { color: '#395a53', fontSize: 11, letterSpacing: 1 },
-  metricValue: { color: P.ink, fontSize: 18, fontWeight: '800', marginTop: 2 },
-  cycleWrap: { marginTop: 8, height: 26, justifyContent: 'center' },
+  state: { color: P.ink, fontWeight: '800', fontSize: 15, marginTop: 8 },
+  time: { color: P.ink, fontSize: 38, fontWeight: '800', marginTop: 0 },
+  metrics: { flexDirection: 'row', marginTop: 8 },
+  metric: { flex: 1, ...border, borderRadius: 14, padding: 8, backgroundColor: '#f1f8ed', marginRight: 6 },
+  metricLabel: { color: '#395a53', fontSize: 10, letterSpacing: 0.8 },
+  metricValue: { color: P.ink, fontSize: 16, fontWeight: '800', marginTop: 1 },
+  cycleWrap: { marginTop: 6, height: 26, justifyContent: 'center' },
   cycle: { flexDirection: 'row', height: 17, ...border, borderRadius: 20, overflow: 'hidden' },
   cyclePin: { position: 'absolute', top: -1, width: 26, height: 26, marginLeft: -13, borderRadius: 13, borderWidth: 3, borderColor: P.ink, backgroundColor: '#fff' },
-  cycleLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
-  error: { color: '#832c2b', backgroundColor: '#fff0ec', borderWidth: 2, borderColor: '#b64d48', borderRadius: 12, padding: 10, marginTop: 10, fontSize: 13 },
+  cycleLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 3 },
+  error: { color: '#832c2b', backgroundColor: '#fff0ec', borderWidth: 2, borderColor: '#b64d48', borderRadius: 10, padding: 8, marginTop: 8, fontSize: 12 },
 });

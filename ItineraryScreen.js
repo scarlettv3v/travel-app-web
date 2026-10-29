@@ -256,11 +256,11 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
   // who is on this flight / stay (set from the Bookings tab)
   const renderJoiners = names =>
     names && names.length ? (
-      <View style={{ alignItems: 'flex-end', marginLeft: 8 }}>
+      <View style={{ alignItems: 'flex-end', marginLeft: 6 }}>
         <View style={{ flexDirection: 'row' }}>
           {names.slice(0, 4).map(n => (
             <View key={n} style={{ marginLeft: 2 }}>
-              <Avatar characterId={characters[n] || 'fox'} size={22} />
+              <Avatar characterId={characters[n] || 'fox'} size={20} />
             </View>
           ))}
         </View>
@@ -274,7 +274,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
   const renderTravel = ({ t, dir }) => (
     <View key={t.id + dir} style={[styles.strip, styles.travelStrip]}>
       <View style={styles.stripIcon}>
-        <Text style={{ fontSize: 18 }}>{TRANSPORT_EMOJI[t.type] || '✈️'}</Text>
+        <Text style={{ fontSize: 14 }}>{TRANSPORT_EMOJI[t.type] || '✈️'}</Text>
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.stripLabel}>
@@ -283,12 +283,12 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
         <Text style={ui.strong}>
           {t.from} → {t.to}
         </Text>
-        <Text style={[ui.sub, { fontSize: 12 }]}>
+        <Text style={[ui.sub, { fontSize: 12, marginTop: 0 }]}>
           {[t.provider, t.reference].filter(Boolean).join(' ')}
           {t.confirmation ? ` · Conf: ${t.confirmation}` : ''}
         </Text>
         {dir === 'depart' && t.arriveTime ? (
-          <Text style={[ui.sub, { fontSize: 12 }]}>
+          <Text style={[ui.sub, { fontSize: 12, marginTop: 0 }]}>
             Arrives {t.arriveDate !== day.iso ? `${t.arriveDate} ` : ''}
             {t.arriveTime}
           </Text>
@@ -302,17 +302,17 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
   const renderStay = (s, label, title, sub) => (
     <View key={s.id + label} style={[styles.strip, styles.stayStrip]}>
       <View style={styles.stripIcon}>
-        <Text style={{ fontSize: 18 }}>{label === 'CHECK-OUT' ? '🧳' : '🏨'}</Text>
+        <Text style={{ fontSize: 14 }}>{label === 'CHECK-OUT' ? '🧳' : '🏨'}</Text>
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.stripLabel}>{label}</Text>
         <Text style={ui.strong}>{title}</Text>
         {sub.map((line, i) => (
-          <Text key={i} style={[ui.sub, { fontSize: 12 }]}>
+          <Text key={i} style={[ui.sub, { fontSize: 12, marginTop: 0 }]}>
             {line}
           </Text>
         ))}
-        <View style={[ui.row, { marginTop: 8 }]}>
+        <View style={[ui.row, { marginTop: 4 }]}>
           {pillBtn('Google Maps', () => openPlace({ name: s.name, address: s.address }))}
         </View>
       </View>
@@ -340,7 +340,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
           </Text>
         </View>
 
-        <Text style={[ui.h3, { marginTop: 8 }]}>
+        <Text style={[ui.h3, { marginTop: 3 }]}>
           {locked ? `${emoji} ` : ''}
           {p.spotName}
         </Text>
@@ -350,18 +350,18 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
         {locked && p.confirmation ? <Text style={ui.sub}>Confirmation: {p.confirmation}</Text> : null}
         {p.note ? <LinkText style={ui.sub}>{p.note}</LinkText> : null}
 
-        <View style={[ui.row, { marginTop: 10 }]}>
+        <View style={[ui.row, { marginTop: 6 }]}>
           <Text style={[ui.sub, { marginTop: 0 }]}>Joining: </Text>
           {p.joining.length === 0 && <Text style={[ui.sub, { marginTop: 0 }]}>nobody yet</Text>}
           {p.joining.map(name => (
             <View key={name} style={{ marginRight: 4 }}>
-              <Avatar characterId={characters[name] || 'fox'} size={24} />
+              <Avatar characterId={characters[name] || 'fox'} size={22} />
             </View>
           ))}
         </View>
 
 
-        <View style={[ui.row, { marginTop: 12 }]}>
+        <View style={[ui.row, { marginTop: 6 }]}>
           {pillBtn(iAmIn ? 'Leave' : "I'm in", () => toggleJoin(p))}
           {locked ? (
             <>
@@ -400,23 +400,23 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
 
           <TripDates />
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 14 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
             {DAYS.map((d, index) => (
               <TouchableOpacity
                 key={d.iso}
                 style={[ui.pill, ui.pillSmall, index === selected && ui.pillActive]}
                 onPress={() => setSelected(index)}
               >
-           <Text style={[ui.pillText, ui.pillTextSmall]}>
-  {`Day ${d.dayNumber}\u2009-\u2009${monthDay(d.iso)}`}
-</Text>
+                <Text style={[ui.pillText, ui.pillTextSmall]}>
+                  {`Day ${d.dayNumber}\u2009-\u2009${monthDay(d.iso)}`}
+                </Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
 
-         <Text style={[ui.h3, { marginTop: 8 }]}>
-  {`Day ${day.dayNumber}\u2009-\u2009${monthDay(day.iso)} (${day.weekday})`}
-</Text>
+          <Text style={[ui.h3, { marginTop: 2 }]}>
+            {`Day ${day.dayNumber}\u2009-\u2009${monthDay(day.iso)} (${day.weekday})`}
+          </Text>
         </View>
 
         {/* Stay & travel: logistics, kept apart from the activities */}
@@ -470,7 +470,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
           {stops.length === 0 &&
             empty('No plans for this day. Add spots from the Spots tab, or book an activity in Bookings.')}
 
-          <View style={{ marginTop: 14 }}>
+          <View style={{ marginTop: 8 }}>
             {stops.map((p, index) => (
               <View key={p.id} style={styles.tlRow}>
                 <View style={styles.tlTime}>
@@ -498,7 +498,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
           <View style={ui.card}>
             <Text style={ui.h3}>Day route</Text>
             <Text style={ui.sub}>Open today's stops, in order, in Google Maps.</Text>
-            <View style={[ui.row, { marginTop: 12 }]}>
+            <View style={[ui.row, { marginTop: 8 }]}>
               <TouchableOpacity
                 style={[ui.pill, ui.pillPrimary]}
                 onPress={() =>
@@ -531,45 +531,46 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
 }
 
 const styles = StyleSheet.create({
-  // stay / travel strips
+  // stay / travel strips (compact)
   strip: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    padding: 12,
-    marginTop: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 9,
+    marginTop: 6,
   },
   travelStrip: { backgroundColor: '#dbeeff', borderColor: '#5ba3c7' },
   stayStrip: { backgroundColor: '#eadcf3', borderColor: '#9b7bc4' },
   stripIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: '#fff',
     borderWidth: 2,
     borderColor: P.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 8,
   },
-  stripLabel: { color: P.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  stripLabel: { color: P.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
 
   // timeline
   tlRow: { flexDirection: 'row' },
-  tlTime: { width: 46, paddingTop: 5, alignItems: 'flex-end', paddingRight: 6 },
-  tlTimeText: { color: P.muted, fontSize: 12, fontWeight: '800', fontFamily: MONO },
-  tlRail: { width: 30, alignItems: 'center' },
+  tlTime: { width: 42, paddingTop: 4, alignItems: 'flex-end', paddingRight: 4 },
+  tlTimeText: { color: P.muted, fontSize: 11, fontWeight: '800', fontFamily: MONO },
+  tlRail: { width: 26, alignItems: 'center' },
   tlDot: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 2,
     borderColor: P.ink,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tlDotText: { color: P.ink, fontSize: 12, fontWeight: '800' },
+  tlDotText: { color: P.ink, fontSize: 11, fontWeight: '800' },
   tlLine: { flex: 1, width: 3, backgroundColor: P.line, marginVertical: 2 },
-  tlBody: { flex: 1, paddingBottom: 14, paddingLeft: 6 },
+  tlBody: { flex: 1, paddingBottom: 8, paddingLeft: 4 },
 });

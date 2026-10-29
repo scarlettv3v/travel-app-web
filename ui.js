@@ -23,51 +23,54 @@ export const P = {
   errorText: '#832c2b',
 };
 
-// Padding for every tab's ScrollView (matches Home)
-export const screenContent = { padding: 15, paddingTop: 44, paddingBottom: 40 };
+// Padding for every tab's ScrollView (matches Home).
+// The top stays at 44 so the avatar button in the corner has room.
+export const screenContent = { padding: 12, paddingTop: 44, paddingBottom: 24 };
 
 const border = { borderWidth: 2, borderColor: P.ink };
 
+// COMPACT LOOK: every number below was reduced from the roomier version.
+// To make it roomier or tighter later, change these numbers (padding / margin / fontSize).
 export const ui = StyleSheet.create({
   screen: { flex: 1, backgroundColor: P.bg },
 
   // cards + text
-  card: { backgroundColor: P.paper, ...border, borderRadius: 22, padding: 16, marginBottom: 16 },
-  kicker: { color: P.kicker, fontSize: 12, letterSpacing: 1.5, marginBottom: 4 },
-  h2: { color: P.ink, fontSize: 22, fontWeight: '800', marginBottom: 2 },
-  h3: { color: P.ink, fontSize: 18, fontWeight: '800', marginBottom: 2 },
-  sub: { color: P.muted, fontSize: 14, marginTop: 2 },
-  hint: { color: P.kicker, fontSize: 12, marginTop: 6 },
-  strong: { color: P.ink, fontWeight: '800', fontSize: 15 },
+  card: { backgroundColor: P.paper, ...border, borderRadius: 18, padding: 12, marginBottom: 10 },
+  kicker: { color: P.kicker, fontSize: 11, letterSpacing: 1.2, marginBottom: 2 },
+  h2: { color: P.ink, fontSize: 20, fontWeight: '800', marginBottom: 0 },
+  h3: { color: P.ink, fontSize: 16, fontWeight: '800', marginBottom: 0 },
+  sub: { color: P.muted, fontSize: 13, marginTop: 1 },
+  hint: { color: P.kicker, fontSize: 11, marginTop: 4 },
+  strong: { color: P.ink, fontWeight: '800', fontSize: 14 },
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
 
   // form panel + fields
-  panel: { backgroundColor: P.panel, borderWidth: 2, borderColor: P.panelBorder, borderRadius: 17, padding: 16, marginTop: 14 },
-  label: { color: P.ink, fontSize: 12, fontWeight: '800', marginTop: 12, marginBottom: 6 },
-  field: { backgroundColor: '#fff', borderWidth: 2, borderColor: P.fieldBorder, borderRadius: 11, paddingVertical: 10, paddingHorizontal: 12, color: P.ink, fontSize: 15 },
+  panel: { backgroundColor: P.panel, borderWidth: 2, borderColor: P.panelBorder, borderRadius: 14, padding: 12, marginTop: 10 },
+  label: { color: P.ink, fontSize: 12, fontWeight: '800', marginTop: 8, marginBottom: 4 },
+  field: { backgroundColor: '#fff', borderWidth: 2, borderColor: P.fieldBorder, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, color: P.ink, fontSize: 15 },
   fieldText: { color: P.ink, fontSize: 15 },
   fieldPlaceholder: { color: '#8a9ca6', fontSize: 15 },
 
   // pills (buttons)
-pill: { backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 11, marginRight: 7, marginBottom: 7 },
-pillText: { color: P.ink, fontWeight: '800', fontSize: 14 },
-pillSmall: { paddingVertical: 3, paddingHorizontal: 9 },
-  pillTextSmall: { fontSize: 13 },
+  pill: { backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10, marginRight: 5, marginBottom: 5 },
+  pillText: { color: P.ink, fontWeight: '800', fontSize: 13 },
+  pillSmall: { paddingVertical: 2, paddingHorizontal: 8 },
+  pillTextSmall: { fontSize: 12 },
   pillPrimary: { backgroundColor: P.gold },
   pillActive: { backgroundColor: P.gold },
   pillDanger: { backgroundColor: P.dangerBg },
   pillDangerText: { color: P.dangerText },
 
   // notices
-  notice: { backgroundColor: P.soft, borderWidth: 2, borderColor: P.fieldBorder, borderRadius: 12, padding: 11, marginTop: 10 },
-  noticeText: { color: P.ink, fontSize: 13, fontWeight: '700' },
+  notice: { backgroundColor: P.soft, borderWidth: 2, borderColor: P.fieldBorder, borderRadius: 10, padding: 8, marginTop: 8 },
+  noticeText: { color: P.ink, fontSize: 12, fontWeight: '700' },
   noticeWarn: { backgroundColor: P.warnBg, borderColor: P.warnBorder },
   noticeError: { backgroundColor: P.dangerBg, borderColor: P.errorBorder },
   noticeErrorText: { color: P.errorText },
 
   // list cards
-  listCard: { backgroundColor: '#fff', borderWidth: 2, borderColor: P.fieldBorder, borderRadius: 16, padding: 15, marginTop: 11 },
-  tag: { alignSelf: 'flex-start', borderWidth: 1, borderColor: '#9dbcae', borderRadius: 999, paddingVertical: 4, paddingHorizontal: 9, backgroundColor: P.soft },
-  tagText: { color: P.ink, fontSize: 12, fontWeight: '800' },
-  byRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
+  listCard: { backgroundColor: '#fff', borderWidth: 2, borderColor: P.fieldBorder, borderRadius: 14, padding: 10, marginTop: 8 },
+  tag: { alignSelf: 'flex-start', borderWidth: 1, borderColor: '#9dbcae', borderRadius: 999, paddingVertical: 2, paddingHorizontal: 8, backgroundColor: P.soft },
+  tagText: { color: P.ink, fontSize: 11, fontWeight: '800' },
+  byRow: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
 });
