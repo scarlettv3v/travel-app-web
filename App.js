@@ -22,6 +22,7 @@ import SpotsScreen from './SpotsScreen';
 import ExpensesScreen from './ExpensesScreen';
 import BookingsScreen from './BookingsScreen';
 import ItineraryScreen from './ItineraryScreen';
+import TodoScreen from './TodoScreen';
 import Avatar from './Avatar';
 import ProfileScreen from './ProfileScreen';
 import ProfileSetupScreen from './ProfileSetupScreen';
@@ -53,6 +54,8 @@ export default function App() {
   const [profileReady, setProfileReady] = useState(false);
   // Default currency: { place: 'Hong Kong', currency: 'HKD' } or null (= the trip currency)
   const [home, setHome] = useState(null);
+  // Which day the Itinerary should open on: { iso: '2026-11-23', n: <changes each time> } or null
+  const [itinTarget, setItinTarget] = useState(null);
   const [tab, setTabState] = useState(() => {
     try {
       if (Platform.OS === 'web') return sessionStorage.getItem('app-tab') || 'home';
@@ -68,6 +71,12 @@ export default function App() {
     } catch (e) {
       // storage not available
     }
+  };
+
+  // "Open Plan" on Home and "View itinerary" in Bookings: open the Itinerary on that exact day
+  const openItinerary = iso => {
+    setItinTarget(typeof iso === 'string' && iso ? { iso, n: Date.now() } : null);
+    setTab('itinerary');
   };
 
   const [loginEmail, setLoginEmail] = useState('');
@@ -500,7 +509,14 @@ export default function App() {
               authToken={authToken}
               profile={profile}
               uid={uid}
-              onOpenPlan={() => setTab('itinerary')}
+              onOpenPlan={openItinerary}
+              onOpenTodo={() => setTab('todo')}
+            />
+          ) : tab === 'todo' ? (
+            <TodoScreen
+              authToken={authToken}
+              profile={profile}
+              onBack={() => setTab('home')}
             />
           ) : tab === 'spots' ? (
             <SpotsScreen authToken={authToken} profile={profile} />
@@ -508,12 +524,13 @@ export default function App() {
             <BookingsScreen
               authToken={authToken}
               profile={profile}
-              onOpenItinerary={() => setTab('itinerary')}
+              onOpenItinerary={openItinerary}
             />
           ) : tab === 'itinerary' ? (
             <ItineraryScreen
               authToken={authToken}
               profile={profile}
+              targetDay={itinTarget}
               onOpenBookings={() => setTab('bookings')}
             />
           ) : tab === 'expenses' ? (
@@ -543,13 +560,18 @@ export default function App() {
           <View style={tabs.edge} />
           <View style={tabs.bar}>
            {TABS.map(([id, Icon, iconName, label, tint]) => {
-              const on = tab === id;
+              // the To-do page belongs to Home, so Home stays lit while it is open
+              const on = tab === id || (id === 'home' && tab === 'todo');
               return (
                 <TouchableOpacity
                   key={id}
                   activeOpacity={0.8}
                   style={[tabs.btn, on && tabs.btnOn]}
-                  onPress={() => setTab(id)}
+                  onPress={() => {
+                    // opening the Itinerary from the bar starts at Day 1 again, not an old target day
+                    if (id === 'itinerary') setItinTarget(null);
+                    setTab(id);
+                  }}
                   accessibilityRole="tab"
                   accessibilityLabel={label}
                   accessibilityState={{ selected: on }}

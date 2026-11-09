@@ -10,6 +10,7 @@ import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
 import { useTrip } from './trip';
 import DatePicker, { formatDate } from './DatePicker';
+import HScroll from './HScroll';
 import SkyLayer, { weatherKind, weatherLabel, skyColor } from './WeatherScene';
 
 // Home uses its own light palette from the design, the other tabs stay dark for now
@@ -46,11 +47,13 @@ const toMin = t => {
   return h * 60 + m;
 };
 
-export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
+// onOpenPlan(iso) opens the Itinerary on that day. onOpenTodo opens the to-do list.
+export default function HomeScreen({ authToken, profile, uid, onOpenPlan, onOpenTodo }) {
   const { name, destination, latitude, longitude, start, end, label, days } = useTrip();
   const scrollRef = useRef(null);
 
   const [travelers, setTravelers] = useState([]);
+  const [todoOpen, setTodoOpen] = useState(null); // how many tasks are still to do
   const [sky, setSky] = useState(null);
   const [skyError, setSkyError] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -77,12 +80,29 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
     }
   }, [authToken]);
 
+  // number of open to-dos for the little badge on the To-do button
+  const loadTodos = useCallback(async () => {
+    try {
+      const res = await firestoreFetch(`${FIRESTORE_BASE}/todos?pageSize=300`, authToken);
+      const data = await res.json();
+      setTodoOpen(
+        (data.documents || []).filter(doc => doc.fields?.done?.booleanValue !== true).length
+      );
+    } catch (error) {
+      // the to-do rule may not be added yet, or there is no signal: just hide the number
+    }
+  }, [authToken]);
+
   useEffect(() => {
     if (!authToken) return;
     loadTravelers();
-    const timer = setInterval(loadTravelers, 15000);
+    loadTodos();
+    const timer = setInterval(() => {
+      loadTravelers();
+      loadTodos();
+    }, 15000);
     return () => clearInterval(timer);
-  }, [authToken, loadTravelers]);
+  }, [authToken, loadTravelers, loadTodos]);
 
   // ---------- clock ----------
   useEffect(() => {
@@ -204,10 +224,19 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
         <Text style={s.sub}>{destination}</Text>
         <Text style={s.sub}>{label}</Text>
         <Text style={s.hint}>Change trip details from your icon at the top right.</Text>
-        <View style={s.badge}>
-          <Text style={s.badgeText}>
-            {days.length} DAYS · {statusText.toUpperCase()}
-          </Text>
+        <View style={s.headRow}>
+          <View style={s.badge}>
+            <Text style={s.badgeText}>
+              {days.length} DAYS · {statusText.toUpperCase()}
+            </Text>
+          </View>
+          {onOpenTodo ? (
+            <TouchableOpacity style={s.todoPill} onPress={onOpenTodo}>
+              <Text style={s.badgeText}>
+                ✅ TO-DO{todoOpen ? ` · ${todoOpen}` : ''}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
 
@@ -221,10 +250,9 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
             : 'Tap a day to explore'}
         </Text>
 
-        <ScrollView
+        {/* HScroll = also scrolls sideways with the mouse wheel on the web */}
+        <HScroll
           ref={scrollRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
           onLayout={e => setTrackW(e.nativeEvent.layout.width)}
           contentContainerStyle={{ paddingVertical: 12 }}
         >
@@ -267,7 +295,7 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
               })}
             </View>
           </View>
-        </ScrollView>
+        </HScroll>
 
         {selectedDay ? (
           <View style={s.notice}>
@@ -280,8 +308,8 @@ export default function HomeScreen({ authToken, profile, uid, onOpenPlan }) {
                 : 'Nobody has joined by this day yet.'}
             </Text>
             {onOpenPlan ? (
-              <TouchableOpacity style={s.smallBtn} onPress={onOpenPlan}>
-                <Text style={s.smallBtnText}>Open Plan</Text>
+              <TouchableOpacity style={s.smallBtn} onPress={() => onOpenPlan(selectedDay.iso)}>
+                <Text style={s.smallBtnText}>Open Plan for this day</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -421,7 +449,9 @@ const s = StyleSheet.create({
   sub: { color: P.muted, fontSize: 13, marginTop: 1 },
   tiny: { color: P.muted, fontSize: 11 },
   hint: { color: '#52756b', fontSize: 11, marginTop: 4 },
-  badge: { alignSelf: 'flex-start', ...border, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10, marginTop: 8, backgroundColor: '#fff' },
+  headRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  badge: { alignSelf: 'flex-start', ...border, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10, marginTop: 8, marginRight: 6, backgroundColor: '#fff' },
+  todoPill: { alignSelf: 'flex-start', ...border, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10, marginTop: 8, backgroundColor: '#fff' },
   badgeText: { color: P.ink, fontWeight: '800', fontSize: 11 },
 
   pathLine: { position: 'absolute', top: 73, height: 8, backgroundColor: P.line, ...border, borderRadius: 9 },

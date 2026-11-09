@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Text, View, TouchableOpacity, TextInput, ScrollView } from 'react-native';
+import { Text, View, TouchableOpacity, TextInput } from 'react-native';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import { useTrip } from './trip';
 import Avatar from './Avatar';
+import HScroll from './HScroll';
 import { ui } from './ui';
 
 // The content of the "Add to day" popup (the popup frame comes from <Popup> in Spots).
@@ -49,6 +50,8 @@ export default function AddToDayCard({ spot, authToken, profile, onClose }) {
         body: JSON.stringify({
           fields: {
             spotName: { stringValue: spot.name },
+            // the spot this came from, so editing either one updates the other
+            spotId: { stringValue: spot.id },
             category: { stringValue: spot.category || 'spot' },
             note: { stringValue: spot.note || '' },
             address: { stringValue: spot.address || '' },
@@ -75,7 +78,8 @@ export default function AddToDayCard({ spot, authToken, profile, onClose }) {
       <Text style={ui.h2}>{spot.name}</Text>
 
       <Text style={ui.label}>Which day?</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+      {/* HScroll = scrolls sideways with the mouse wheel on the web too */}
+      <HScroll style={{ flexGrow: 0 }}>
         {DAYS.map(d => (
           <TouchableOpacity
             key={d.iso}
@@ -87,7 +91,7 @@ export default function AddToDayCard({ spot, authToken, profile, onClose }) {
             </Text>
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </HScroll>
 
       <Text style={ui.label}>Time (optional)</Text>
       <TextInput
@@ -124,7 +128,7 @@ export default function AddToDayCard({ spot, authToken, profile, onClose }) {
         })}
       </View>
 
-      <View style={[ui.row, { marginTop: 18 }]}>
+      <View style={[ui.row, { marginTop: 14 }]}>
         <TouchableOpacity
           style={[ui.pill, ui.pillPrimary, busy && { opacity: 0.5 }]}
           onPress={save}

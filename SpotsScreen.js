@@ -5,13 +5,16 @@ import AddToDayCard from './AddToDayCard';
 import AddSpotModal from './AddSpotModal';
 import SpotForm from './SpotForm';
 import Popup from './Popup';
+import HScroll from './HScroll';
 import { CATEGORIES, getCategory } from './categories';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
+import { pushSpotToPlans } from './linkSync';
 import LinkText from './LinkText';
 import { openPlace } from './places';
 import { ui, screenContent } from './ui';
 
-const DB_URL = `${FIRESTORE_BASE}/spots`;
+// pageSize=300 so every spot is returned (the database only sends a short first page otherwise)
+const DB_URL = `${FIRESTORE_BASE}/spots?pageSize=300`;
 
 export default function SpotsScreen({ authToken, profile }) {
   const [placesList, setPlacesList] = useState([]);
@@ -91,6 +94,24 @@ export default function SpotsScreen({ authToken, profile }) {
         }
       );
 
+      // Also update the itinerary items made from this spot, so both stay the same
+      try {
+        await pushSpotToPlans(
+          editingSpot.id,
+          editingSpot.name,
+          {
+            name: data.name,
+            address: data.address || '',
+            note: data.note || '',
+            category: data.category,
+          },
+          authToken
+        );
+      } catch (syncError) {
+        console.error('Error updating itinerary from spot:', syncError);
+        alert('The spot was saved, but the itinerary items made from it could not be updated.');
+      }
+
       setEditingSpot(null);
       await loadSpots();
     } catch (error) {
@@ -139,7 +160,7 @@ export default function SpotsScreen({ authToken, profile }) {
           </Text>
 
           <Text style={ui.label}>Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+          <HScroll style={{ flexGrow: 0 }}>
             {categoryItems.map(([id, label]) => (
               <TouchableOpacity
                 key={id}
@@ -149,7 +170,7 @@ export default function SpotsScreen({ authToken, profile }) {
                 <Text style={[ui.pillText, ui.pillTextSmall]}>{label}</Text>
               </TouchableOpacity>
             ))}
-          </ScrollView>
+          </HScroll>
 
           {visibleSpots.length === 0 && (
             <View style={ui.notice}>
@@ -237,6 +258,9 @@ export default function SpotsScreen({ authToken, profile }) {
           <View>
             <Text style={ui.kicker}>EDIT SPOT</Text>
             <Text style={ui.h2}>{editingSpot.name}</Text>
+            <Text style={ui.hint}>
+              Changes also update this spot on the days you added it to in the Itinerary.
+            </Text>
             <SpotForm
               key={editingSpot.id}
               initial={{

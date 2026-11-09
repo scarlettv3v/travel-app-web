@@ -13,6 +13,7 @@ import DatePicker, { formatDate } from './DatePicker';
 import LinkText from './LinkText';
 import { openPlace } from './places';
 import Popup from './Popup';
+import HScroll from './HScroll';
 import { P, ui, screenContent } from './ui';
 
 const TYPES = [
@@ -22,6 +23,15 @@ const TYPES = [
   { id: 'ferry', emoji: '⛴️', label: 'Ferry' },
 ];
 const typeOf = id => TYPES.find(t => t.id === id) || TYPES[0];
+
+// The filter row at the top of the list
+const FILTERS = [
+  ['all', '🗂️ All'],
+  ['transport', '✈️ Transport'],
+  ['stay', '🏨 Stays'],
+  ['activity', '🎟️ Activities'],
+  ['restaurant', '🍽️ Restaurants'],
+];
 
 // [key, label, placeholder]
 const TRANSPORT_FORM = [
@@ -82,9 +92,13 @@ const DATE_KEYS = ['departDate', 'arriveDate', 'checkIn', 'checkOut', 'date'];
 const MIN_FROM = { arriveDate: 'departDate', checkOut: 'checkIn' };
 const isDate = text => /^\d{4}-\d{2}-\d{2}$/.test(text);
 const str = (doc, key) => doc.fields?.[key]?.stringValue || '';
-const nice = d => (d ? formatDate(d) : '');
+const nice = d => (d ? formatDate(d) : ''); // Nov 21, 2026 (Sat)
+const niceShort = d => (d ? formatDate(d, { year: false }) : ''); // Nov 21 (Sat)
 const joinList = doc =>
   (doc.fields?.joining?.arrayValue?.values || []).map(v => v.stringValue);
+const joinValue = names => ({
+  arrayValue: { values: names.map(n => ({ stringValue: n })) },
+});
 function toFields(values) {
   const out = {};
   Object.keys(values).forEach(key => {
@@ -103,7 +117,11 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
   const [formKind, setFormKind] = useState(null); // 'transport' | 'stay' | 'activity' | 'restaurant' | null
   const [editingId, setEditingId] = useState(null);
   const [values, setValues] = useState({});
+  const [joiningSel, setJoiningSel] = useState([]); // who is on the booking being added / edited
   const [pickerKey, setPickerKey] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useState('');
+  const [openIds, setOpenIds] = useState({}); // which cards are expanded
 
   const loadAll = useCallback(async () => {
     try {
@@ -207,6 +225,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
   const openForm = kind => {
     setEditingId(null);
     setValues(kind === 'transport' ? { type: 'flight' } : {});
+    setJoiningSel([profile.name]);
     setFormKind(kind);
     scrollTop();
   };
@@ -219,6 +238,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
     });
     if (kind === 'transport') v.type = item.type || 'flight';
     setValues(v);
+    setJoiningSel(item.joining || []);
     setEditingId(item.id);
     setFormKind(kind);
     scrollTop();
@@ -230,6 +250,9 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
   };
 
   const setValue = (key, text) => setValues(prev => ({ ...prev, [key]: text }));
+
+  const toggleSel = name =>
+    setJoiningSel(prev => (prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]));
 
   const savePlanBooking = async () => {
     if (!(values.name || '').trim() || !isDate(values.date || '')) {
@@ -251,6 +274,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
       partySize: { stringValue: values.partySize || '' },
       confirmation: { stringValue: values.confirmation || '' },
       note: { stringValue: values.notes || '' },
+      joining: joinValue(joiningSel),
     };
 
     try {
@@ -278,7 +302,6 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
               status: { stringValue: 'booked' },
               source: { stringValue: 'booking' },
               bookingKind: { stringValue: formKind },
-              joining: { arrayValue: { values: [{ stringValue: profile.name }] } },
               addedByName: { stringValue: profile.name },
               addedByCharacter: { stringValue: profile.character },
             },
@@ -316,8 +339,8 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
 
     try {
       if (editingId) {
-        // Editing: change only the form fields, keep "Added by" as it was
-        const editFields = toFields(values);
+        // Editing: change only the form fields (and who is on it), keep "Added by" as it was
+        const editFields = { ...toFields(values), joining: joinValue(joiningSel) };
         const mask = Object.keys(editFields)
           .map(key => `updateMask.fieldPaths=${key}`)
           .join('&');
@@ -341,7 +364,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
                 addedByName: profile.name,
                 addedByCharacter: profile.character,
               }),
-              joining: { arrayValue: { values: [{ stringValue: profile.name }] } },
+              joining: joinValue(joiningSel),
             },
           }),
         });
@@ -376,6 +399,56 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
 
   const formFields = formKind ? formFor(formKind) : [];
 
+  // ---------- filter + search ----------
+  const q = query.trim().toLowerCase();
+  const hit = (...parts) => !q || parts.join(' ').toLowerCase().includes(q);
+
+  const tList = transport.filter(t =>
+    hit(t.from, t.to, t.provider, t.reference, t.confirmation, t.notes, typeOf(t.type).label)
+  );
+  const sList = stays.filter(h => hit(h.name, h.address, h.confirmation, h.notes));
+  const aAll = reservations.filter(r => r.kind !== 'restaurant');
+  const rAll = reservations.filter(r => r.kind === 'restaurant');
+  const aList = aAll.filter(r => hit(r.name, r.address, r.confirmation, r.notes));
+  const rList2 = rAll.filter(r => hit(r.name, r.address, r.confirmation, r.notes));
+
+  const counts = {
+    all: transport.length + stays.length + reservations.length,
+    transport: transport.length,
+    stay: stays.length,
+    activity: aAll.length,
+    restaurant: rAll.length,
+  };
+
+  const showT = filter === 'all' || filter === 'transport';
+  const showS = filter === 'all' || filter === 'stay';
+  const showA = filter === 'all' || filter === 'activity';
+  const showR = filter === 'all' || filter === 'restaurant';
+
+  const visibleItems = [
+    ...(showT ? tList : []),
+    ...(showS ? sList : []),
+    ...(showA ? aList : []),
+    ...(showR ? rList2 : []),
+  ];
+  const allOpen = visibleItems.length > 0 && visibleItems.every(i => openIds[i.id]);
+  const toggleAll = () => {
+    if (allOpen) {
+      setOpenIds({});
+    } else {
+      const next = {};
+      visibleItems.forEach(i => {
+        next[i.id] = true;
+      });
+      setOpenIds(next);
+    }
+  };
+  const toggleOpen = id => setOpenIds(prev => ({ ...prev, [id]: !prev[id] }));
+
+  const memberNames = [
+    ...new Set([profile.name, ...Object.keys(characters), ...joiningSel].filter(Boolean)),
+  ];
+
   // ---------- small render helpers ----------
   // Everyone sees every booking. Each person taps "I'm on this" if it applies to them.
   const toggleJoin = async item => {
@@ -390,9 +463,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fields: { joining: { arrayValue: { values: next.map(n => ({ stringValue: n })) } } },
-          }),
+          body: JSON.stringify({ fields: { joining: joinValue(next) } }),
         }
       );
       await loadAll();
@@ -403,16 +474,16 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
   };
 
   const renderWho = item => (
-    <View style={{ marginTop: 10 }}>
+    <View style={{ marginTop: 8 }}>
       <Text style={[ui.sub, { marginTop: 0 }]}>Who's on this?</Text>
-      <View style={[ui.row, { marginTop: 6 }]}>
+      <View style={[ui.row, { marginTop: 4 }]}>
         {(item.joining || []).length === 0 ? (
           <Text style={[ui.sub, { marginTop: 0 }]}>Nobody yet. Tap "I'm on this".</Text>
         ) : (
           item.joining.map(name => (
-            <View key={name} style={{ alignItems: 'center', marginRight: 10 }}>
-              <Avatar characterId={characters[name] || 'fox'} size={24} />
-              <Text style={{ color: '#526873', fontSize: 11 }}>{name}</Text>
+            <View key={name} style={{ alignItems: 'center', marginRight: 8 }}>
+              <Avatar characterId={characters[name] || 'fox'} size={22} />
+              <Text style={{ color: '#526873', fontSize: 10 }}>{name}</Text>
             </View>
           ))
         )}
@@ -438,7 +509,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
   ) : null;
 
   const renderButtons = (kind, item, extra) => (
-    <View style={[ui.row, { marginTop: 12 }]}>
+    <View style={[ui.row, { marginTop: 8 }]}>
       {extra}
       <TouchableOpacity style={[ui.pill, ui.pillSmall]} onPress={() => startEdit(kind, item)}>
         <Text style={[ui.pillText, ui.pillTextSmall]}>Edit</Text>
@@ -463,11 +534,50 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
     </TouchableOpacity>
   );
 
+  // "View itinerary" jumps to the exact day of this booking (only if that day is in the trip)
+  const itineraryPill = date =>
+    onOpenItinerary && DAYS.some(d => d.iso === date) ? (
+      <TouchableOpacity
+        style={[ui.pill, ui.pillSmall, ui.pillPrimary]}
+        onPress={() => onOpenItinerary(date)}
+      >
+        <Text style={[ui.pillText, ui.pillTextSmall]}>View itinerary</Text>
+      </TouchableOpacity>
+    ) : null;
+
   const renderWarning = text => (
     <View style={[ui.notice, ui.noticeWarn]}>
       <Text style={ui.noticeText}>⚠ {text}</Text>
     </View>
   );
+
+  // The always-visible top of a card: tag, who is on it, the title and one line of summary.
+  // Tap it to open or close the details.
+  const renderHead = (item, tagText, title, summary) => {
+    const open = !!openIds[item.id];
+    const names = item.joining || [];
+    return (
+      <TouchableOpacity activeOpacity={0.7} onPress={() => toggleOpen(item.id)}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={ui.tag}>
+            <Text style={ui.tagText}>{tagText}</Text>
+          </View>
+          <View style={{ flex: 1 }} />
+          {names.slice(0, 3).map(n => (
+            <View key={n} style={{ marginLeft: 2 }}>
+              <Avatar characterId={characters[n] || 'fox'} size={18} />
+            </View>
+          ))}
+          {names.length > 3 ? (
+            <Text style={{ color: P.muted, fontSize: 11, marginLeft: 3 }}>+{names.length - 3}</Text>
+          ) : null}
+          <Text style={[ui.sub, { marginTop: 0, marginLeft: 8, fontSize: 14 }]}>{open ? '▴' : '▾'}</Text>
+        </View>
+        <Text style={[ui.h3, { marginTop: 3 }]}>{title}</Text>
+        {!open && summary ? <Text style={ui.sub}>{summary}</Text> : null}
+      </TouchableOpacity>
+    );
+  };
 
   const renderField = ([key, label, placeholder]) => (
     <View key={key}>
@@ -493,7 +603,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
       )}
       {key === 'address' && formKind !== 'transport' ? (
         <View>
-          <View style={[ui.row, { marginTop: 10 }]}>
+          <View style={[ui.row, { marginTop: 8 }]}>
             <TouchableOpacity
               style={[ui.pill, ui.pillSmall]}
               onPress={() => openPlace({ name: values.name, address: values.address })}
@@ -508,6 +618,10 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
         </View>
       ) : null}
     </View>
+  );
+
+  const sectionTitle = (text, first) => (
+    <Text style={[ui.h3, { marginTop: first ? 8 : 16 }]}>{text}</Text>
   );
 
   return (
@@ -525,7 +639,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
         <Text style={ui.hint}>Trip: {TRIP_LABEL}</Text>
       </View>
 
-      {/* Add buttons + form */}
+      {/* Add buttons */}
       <View style={ui.card}>
         <View style={ui.row}>
           <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={() => openForm('transport')}>
@@ -547,137 +661,200 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
               `${outsideCount} booking${outsideCount > 1 ? 's are' : ' is'} outside your trip dates. They won't show on the Itinerary tab.`
             )
           : null}
-
       </View>
 
-      {/* Lists */}
+      {/* Find a booking: search + category filter */}
       <View style={ui.card}>
-        <Text style={ui.h3}>Transport ({transport.length})</Text>
-        {transport.length === 0 && (
-          <View style={ui.notice}>
-            <Text style={ui.noticeText}>No transport yet. Add a ride above.</Text>
-          </View>
-        )}
-        {transport.map(t => (
-          <View key={t.id} style={ui.listCard}>
-            <View style={ui.tag}>
-              <Text style={ui.tagText}>
-                {typeOf(t.type).emoji} {typeOf(t.type).label}
-              </Text>
-            </View>
-            <Text style={[ui.h3, { marginTop: 8 }]}>
-              {t.from} → {t.to}
-            </Text>
-            {renderAddedBy(t)}
-            <Text style={ui.sub}>
-              {t.provider || typeOf(t.type).label}
-              {t.reference ? ` · ${t.reference}` : ''}
-            </Text>
-            <Text style={ui.sub}>
-              Departs {nice(t.departDate)} {t.departTime}
-            </Text>
-            {t.arriveDate || t.arriveTime ? (
-              <Text style={ui.sub}>
-                Arrives {nice(t.arriveDate)} {t.arriveTime}
-              </Text>
-            ) : null}
-            {t.confirmation ? <Text style={ui.sub}>Confirmation: {t.confirmation}</Text> : null}
-            {t.notes ? <LinkText style={ui.sub}>{`📝 ${t.notes}`}</LinkText> : null}
-            {outside(t.departDate) ? renderWarning('Departs outside your trip dates') : null}
-            {renderWho(t)}
-            {renderButtons('transport', t, joinPill(t))}
-          </View>
-        ))}
+        <TextInput
+          style={ui.field}
+          placeholder="🔎 Search name, place, confirmation..."
+          placeholderTextColor="#8a9ca6"
+          value={query}
+          onChangeText={setQuery}
+          autoCapitalize="none"
+        />
 
-        <Text style={[ui.h3, { marginTop: 22 }]}>Stays ({stays.length})</Text>
-        {stays.length === 0 && (
-          <View style={ui.notice}>
-            <Text style={ui.noticeText}>No stays yet. Add a place to sleep above.</Text>
-          </View>
-        )}
-        {stays.map(h => (
-          <View key={h.id} style={ui.listCard}>
-            <View style={ui.tag}>
-              <Text style={ui.tagText}>🏨 Stay</Text>
-            </View>
-            <Text style={[ui.h3, { marginTop: 8 }]}>{h.name}</Text>
-            <Text style={ui.sub}>
-              {nice(h.checkIn)} {h.checkInTime} check-in
-            </Text>
-            <Text style={ui.sub}>
-              {nice(h.checkOut)} {h.checkOutTime} check-out
-            </Text>
-            {h.address ? <Text style={ui.sub}>📍 {h.address}</Text> : null}
-            {h.confirmation ? <Text style={ui.sub}>Confirmation: {h.confirmation}</Text> : null}
-            {h.notes ? <LinkText style={ui.sub}>{`📝 ${h.notes}`}</LinkText> : null}
-            {outside(h.checkIn) || outside(h.checkOut)
-              ? renderWarning('Dates fall outside your trip')
-              : null}
-            {renderWho(h)}
-            {renderButtons(
-              'stay',
-              h,
-              <>
-                {joinPill(h)}
-                {directionsPill(h)}
-              </>
-            )}
-          </View>
-        ))}
+        <HScroll style={{ flexGrow: 0, marginTop: 8 }}>
+          {FILTERS.map(([id, label]) => (
+            <TouchableOpacity
+              key={id}
+              style={[ui.pill, ui.pillSmall, filter === id && ui.pillActive]}
+              onPress={() => setFilter(id)}
+            >
+              <Text style={[ui.pillText, ui.pillTextSmall]}>
+                {label} ({counts[id]})
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </HScroll>
 
-        <Text style={[ui.h3, { marginTop: 22 }]}>
-          Activities & restaurants ({reservations.length})
-        </Text>
-        {reservations.length === 0 && (
+        <View style={[ui.row, { justifyContent: 'space-between', marginTop: 2 }]}>
+          <Text style={[ui.sub, { marginTop: 0, flex: 1 }]}>
+            Showing {visibleItems.length}
+            {q || filter !== 'all' ? ' match' + (visibleItems.length === 1 ? '' : 'es') : ' bookings'}
+            {' · tap a card to open it'}
+          </Text>
+          {visibleItems.length > 1 ? (
+            <TouchableOpacity style={[ui.pill, ui.pillSmall, { marginRight: 0, marginBottom: 0 }]} onPress={toggleAll}>
+              <Text style={[ui.pillText, ui.pillTextSmall]}>{allOpen ? 'Collapse all' : 'Expand all'}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {visibleItems.length === 0 && (
           <View style={ui.notice}>
             <Text style={ui.noticeText}>
-              Nothing booked yet. Add an activity or restaurant above and it will appear on its day in the Itinerary.
+              {counts.all === 0
+                ? 'No bookings yet. Add one above.'
+                : 'Nothing matches. Try another word or choose All.'}
             </Text>
           </View>
         )}
-        {reservations.map(r => {
-          const day = DAYS.find(d => d.iso === r.date);
-          const isRestaurant = r.kind === 'restaurant';
-          return (
-            <View key={r.id} style={ui.listCard}>
-              <View style={ui.tag}>
-                <Text style={ui.tagText}>{isRestaurant ? '🍽️ Restaurant' : '🎟️ Activity'}</Text>
+
+        {/* Transport */}
+        {showT && tList.length > 0 && sectionTitle(`✈️ Transport (${tList.length})`, filter !== 'all')}
+        {showT &&
+          tList.map(t => {
+            const open = !!openIds[t.id];
+            const warn = outside(t.departDate);
+            return (
+              <View key={t.id} style={ui.listCard}>
+                {renderHead(
+                  t,
+                  `${typeOf(t.type).emoji} ${typeOf(t.type).label}`,
+                  `${t.from} → ${t.to}`,
+                  `${niceShort(t.departDate)} ${t.departTime}`.trim() +
+                    (t.provider ? ` · ${t.provider}` : '') +
+                    (warn ? ' · ⚠ outside trip' : '')
+                )}
+                {open ? (
+                  <View>
+                    {renderAddedBy(t)}
+                    <Text style={ui.sub}>
+                      {t.provider || typeOf(t.type).label}
+                      {t.reference ? ` · ${t.reference}` : ''}
+                    </Text>
+                    <Text style={ui.sub}>
+                      Departs {nice(t.departDate)} {t.departTime}
+                    </Text>
+                    {t.arriveDate || t.arriveTime ? (
+                      <Text style={ui.sub}>
+                        Arrives {nice(t.arriveDate)} {t.arriveTime}
+                      </Text>
+                    ) : null}
+                    {t.confirmation ? <Text style={ui.sub}>Confirmation: {t.confirmation}</Text> : null}
+                    {t.notes ? <LinkText style={ui.sub}>{`📝 ${t.notes}`}</LinkText> : null}
+                    {warn ? renderWarning('Departs outside your trip dates') : null}
+                    {renderWho(t)}
+                    {renderButtons('transport', t, (
+                      <>
+                        {joinPill(t)}
+                        {itineraryPill(t.departDate)}
+                      </>
+                    ))}
+                  </View>
+                ) : null}
               </View>
-              <Text style={[ui.h3, { marginTop: 8 }]}>{r.name}</Text>
-              <Text style={ui.sub}>
-                {nice(r.date)} {r.time}
-              </Text>
-              {r.partySize ? <Text style={ui.sub}>Party of {r.partySize}</Text> : null}
-              {r.address ? <Text style={ui.sub}>📍 {r.address}</Text> : null}
-              {r.confirmation ? <Text style={ui.sub}>Confirmation: {r.confirmation}</Text> : null}
-              {r.notes ? <LinkText style={ui.sub}>{`📝 ${r.notes}`}</LinkText> : null}
-              {day ? (
-                <Text style={[ui.sub, { fontWeight: '800', color: P.ink, marginTop: 6 }]}>
-                  📅 On the itinerary: Day {day.dayNumber} · {day.short} (Booked)
-                </Text>
-              ) : (
-                renderWarning('This date is outside your trip, so it is not on the itinerary')
-              )}
-              {renderWho(r)}
-              {renderButtons(
-                r.kind,
-                r,
-                <>
-                  {joinPill(r, "I'm in")}
-                  {day && onOpenItinerary ? (
-                    <TouchableOpacity
-                      style={[ui.pill, ui.pillSmall, ui.pillPrimary]}
-                      onPress={onOpenItinerary}
-                    >
-                      <Text style={[ui.pillText, ui.pillTextSmall]}>View itinerary</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {directionsPill(r)}
-                </>
-              )}
+            );
+          })}
+
+        {/* Stays */}
+        {showS && sList.length > 0 && sectionTitle(`🏨 Stays (${sList.length})`, filter !== 'all')}
+        {showS &&
+          sList.map(h => {
+            const open = !!openIds[h.id];
+            const warn = outside(h.checkIn) || outside(h.checkOut);
+            return (
+              <View key={h.id} style={ui.listCard}>
+                {renderHead(
+                  h,
+                  '🏨 Stay',
+                  h.name,
+                  `${niceShort(h.checkIn)} → ${niceShort(h.checkOut)}` +
+                    (warn ? ' · ⚠ outside trip' : '')
+                )}
+                {open ? (
+                  <View>
+                    {renderAddedBy(h)}
+                    <Text style={ui.sub}>
+                      {nice(h.checkIn)} {h.checkInTime} check-in
+                    </Text>
+                    <Text style={ui.sub}>
+                      {nice(h.checkOut)} {h.checkOutTime} check-out
+                    </Text>
+                    {h.address ? <Text style={ui.sub}>📍 {h.address}</Text> : null}
+                    {h.confirmation ? <Text style={ui.sub}>Confirmation: {h.confirmation}</Text> : null}
+                    {h.notes ? <LinkText style={ui.sub}>{`📝 ${h.notes}`}</LinkText> : null}
+                    {warn ? renderWarning('Dates fall outside your trip') : null}
+                    {renderWho(h)}
+                    {renderButtons('stay', h, (
+                      <>
+                        {joinPill(h)}
+                        {itineraryPill(h.checkIn)}
+                        {directionsPill(h)}
+                      </>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
+
+        {/* Activities and restaurants */}
+        {[
+          [showA, aList, '🎟️ Activities'],
+          [showR, rList2, '🍽️ Restaurants'],
+        ].map(([show, list, title]) =>
+          show && list.length > 0 ? (
+            <View key={title}>
+              {sectionTitle(`${title} (${list.length})`, filter !== 'all')}
+              {list.map(r => {
+                const open = !!openIds[r.id];
+                const day = DAYS.find(d => d.iso === r.date);
+                const isRestaurant = r.kind === 'restaurant';
+                return (
+                  <View key={r.id} style={ui.listCard}>
+                    {renderHead(
+                      r,
+                      isRestaurant ? '🍽️ Restaurant' : '🎟️ Activity',
+                      r.name,
+                      `${niceShort(r.date)} ${r.time}`.trim() +
+                        (r.partySize ? ` · party of ${r.partySize}` : '') +
+                        (!day ? ' · ⚠ outside trip' : '')
+                    )}
+                    {open ? (
+                      <View>
+                        {renderAddedBy(r)}
+                        <Text style={ui.sub}>
+                          {nice(r.date)} {r.time}
+                        </Text>
+                        {r.partySize ? <Text style={ui.sub}>Party of {r.partySize}</Text> : null}
+                        {r.address ? <Text style={ui.sub}>📍 {r.address}</Text> : null}
+                        {r.confirmation ? <Text style={ui.sub}>Confirmation: {r.confirmation}</Text> : null}
+                        {r.notes ? <LinkText style={ui.sub}>{`📝 ${r.notes}`}</LinkText> : null}
+                        {day ? (
+                          <Text style={[ui.sub, { fontWeight: '800', color: P.ink, marginTop: 6 }]}>
+                            📅 On the itinerary: Day {day.dayNumber} · {day.short} (Booked)
+                          </Text>
+                        ) : (
+                          renderWarning('This date is outside your trip, so it is not on the itinerary')
+                        )}
+                        {renderWho(r)}
+                        {renderButtons(r.kind, r, (
+                          <>
+                            {joinPill(r, "I'm in")}
+                            {itineraryPill(r.date)}
+                            {directionsPill(r)}
+                          </>
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
             </View>
-          );
-        })}
+          ) : null
+        )}
       </View>
 
       {/* Add / edit popup */}
@@ -707,13 +884,39 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
 
             {formFields.map(renderField)}
 
+            {/* Add other people to this booking, like when adding a spot to a day */}
+            <Text style={ui.label}>Who's on this?</Text>
+            <View style={ui.row}>
+              {memberNames.map(name => {
+                const on = joiningSel.includes(name);
+                return (
+                  <TouchableOpacity
+                    key={name}
+                    style={[
+                      ui.pill,
+                      ui.pillSmall,
+                      on && ui.pillActive,
+                      { flexDirection: 'row', alignItems: 'center' },
+                    ]}
+                    onPress={() => toggleSel(name)}
+                  >
+                    <Avatar characterId={characters[name] || profile.character || 'fox'} size={18} />
+                    <Text style={[ui.pillText, ui.pillTextSmall, { marginLeft: 5 }]}>
+                      {on ? '✓ ' : ''}
+                      {name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
             <Text style={ui.hint}>
               {isPlanKind(formKind)
                 ? 'It will appear on this day in the Itinerary, marked as Booked.'
                 : 'Dates with a blue edge are your trip days.'}
             </Text>
 
-            <View style={[ui.row, { marginTop: 14 }]}>
+            <View style={[ui.row, { marginTop: 12 }]}>
               <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={save}>
                 <Text style={ui.pillText}>{editingId ? 'Save changes' : 'Save booking'}</Text>
               </TouchableOpacity>

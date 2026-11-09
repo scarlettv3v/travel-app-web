@@ -1,12 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { Text, View, StyleSheet, TouchableOpacity, Modal } from 'react-native';
-import { colors } from './theme';
 import { useTrip } from './trip';
 import { formatDate } from './dateFormat';
 
 // Same name as before, so screens that import { formatDate } from './DatePicker' still work.
-// The look (Nov 21, 2026 (Sat)) now lives in dateFormat.js
+// The look (Nov 21, 2026 (Sat)) lives in dateFormat.js
 export { formatDate };
+
+// ---------------------------------------------------------------------------------------------
+// COLOURS of the date picker popup. Change them here. Any hex colour works.
+// It uses the same light look as the rest of the app (it used to be dark).
+// ---------------------------------------------------------------------------------------------
+const C = {
+  backdrop: 'rgba(38,58,72,0.6)', // the dimmed area behind the popup
+  card: '#fffdf6', // popup background
+  ink: '#263a48', // text and outlines
+  muted: '#526873', // weekday letters, small text
+  tripBorder: '#54a887', // outline on days that are inside your trip
+  inRange: '#d9f5e7', // days between the start and end date
+  selected: '#ffe1aa', // the day you picked
+  buttonBg: '#ffffff', // Clear button
+  cancelBg: '#fff0ec', // Cancel button
+  cancelText: '#973c39',
+};
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -100,14 +116,14 @@ export default function DatePicker({ visible, title, value, minDate, onPick, onC
             })}
           </View>
 
-          <Text style={styles.legend}>Blue edge = your trip days</Text>
+          <Text style={styles.legend}>Green edge = your trip days</Text>
 
-          <View style={{ flexDirection: 'row', marginTop: 10 }}>
+          <View style={{ flexDirection: 'row', marginTop: 8 }}>
             <TouchableOpacity style={[styles.clearBtn, { flex: 1, marginRight: 8 }]} onPress={onClear}>
               <Text style={styles.btnText}>Clear</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.cancelBtn, { flex: 1 }]} onPress={onClose}>
-              <Text style={styles.btnText}>Cancel</Text>
+              <Text style={[styles.btnText, { color: C.cancelText }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -117,24 +133,33 @@ export default function DatePicker({ visible, title, value, minDate, onPick, onC
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 15 },
-  card: { backgroundColor: colors.cardDark, borderRadius: 10, padding: 14, borderWidth: 1, borderColor: colors.primary },
-  title: { color: colors.primary, fontWeight: 'bold', fontSize: 15, marginBottom: 8 },
-  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  nav: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  navText: { color: colors.text, fontSize: 22 },
-  month: { flex: 1, color: colors.text, fontWeight: 'bold', fontSize: 15, textAlign: 'center' },
+  backdrop: { flex: 1, backgroundColor: C.backdrop, justifyContent: 'center', padding: 12 },
+  card: {
+    backgroundColor: C.card,
+    borderRadius: 18,
+    padding: 12,
+    borderWidth: 2,
+    borderColor: C.ink,
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
+  },
+  title: { color: C.ink, fontWeight: '800', fontSize: 15, marginBottom: 6 },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  nav: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  navText: { color: C.ink, fontSize: 22, fontWeight: '700' },
+  month: { flex: 1, color: C.ink, fontWeight: '800', fontSize: 15, textAlign: 'center' },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  cell: { width: '14.285%', height: 40, alignItems: 'center', justifyContent: 'center' },
-  weekday: { color: colors.textMuted, fontSize: 12 },
-  day: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent' },
-  dayTrip: { borderColor: '#2f5d8f' },
-  dayRange: { backgroundColor: '#1f3a5f' },
-  daySelected: { backgroundColor: colors.primary, borderColor: colors.primary },
-  dayText: { color: colors.text, fontSize: 14 },
-  dayDisabled: { color: colors.textDim, opacity: 0.4 },
-  legend: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginTop: 6 },
-  clearBtn: { backgroundColor: colors.input, padding: 12, borderRadius: 8, alignItems: 'center' },
-  cancelBtn: { backgroundColor: colors.danger, padding: 12, borderRadius: 8, alignItems: 'center' },
-  btnText: { color: colors.text, fontWeight: 'bold', fontSize: 14 },
+  cell: { width: '14.285%', height: 38, alignItems: 'center', justifyContent: 'center' },
+  weekday: { color: C.muted, fontSize: 12, fontWeight: '700' },
+  day: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'transparent' },
+  dayTrip: { borderColor: C.tripBorder },
+  dayRange: { backgroundColor: C.inRange },
+  daySelected: { backgroundColor: C.selected, borderColor: C.ink },
+  dayText: { color: C.ink, fontSize: 14, fontWeight: '600' },
+  dayDisabled: { opacity: 0.3 },
+  legend: { color: C.muted, fontSize: 11, textAlign: 'center', marginTop: 4 },
+  clearBtn: { backgroundColor: C.buttonBg, borderWidth: 2, borderColor: C.ink, padding: 8, borderRadius: 999, alignItems: 'center' },
+  cancelBtn: { backgroundColor: C.cancelBg, borderWidth: 2, borderColor: C.ink, padding: 8, borderRadius: 999, alignItems: 'center' },
+  btnText: { color: C.ink, fontWeight: '800', fontSize: 14 },
 });

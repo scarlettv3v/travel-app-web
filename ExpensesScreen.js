@@ -18,6 +18,7 @@ import Popup from './Popup';
 import { P, ui, screenContent } from './ui';
 import { useTrip } from './trip';
 import { store, useOnline, isOnlineNow, isNetworkError, getRate } from './offline';
+import { isPersonal, buildStats, buildTransfers, myFlows, myPersonalExpenses } from './expenseStats';
 
 const money = n => Number(n).toFixed(2);
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
@@ -60,6 +61,12 @@ function Pills({ items, selected, onPress }) {
   );
 }
 
+// Two views of the list: everyone's expenses, or just my own personal ones
+const LIST_FILTERS = [
+  ['all', 'Everyone'],
+  ['personal', 'Personal'],
+];
+
 export default function ExpensesScreen({ authToken, profile, defaultCurrency }) {
   const scrollRef = useRef(null);
   const online = useOnline();
@@ -83,10 +90,15 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
   const [rateNote, setRateNote] = useState('');
   const [payer, setPayer] = useState('');
   const [split, setSplit] = useState([]);
+  const [personal, setPersonal] = useState(false); // only the payer shares it
 
   const [displayCurrency, setDisplayCurrency] = useState(defaultCurrency || base);
   const [displayRate, setDisplayRate] = useState(1);
   const [displayNote, setDisplayNote] = useState('');
+
+  // filters for the list of expenses
+  const [listFilter, setListFilter] = useState('all'); // all | personal (my own personal expenses)
+  const [spendOpen, setSpendOpen] = useState(false); // is the My spending card expanded?
 
   // The default currency is only for showing totals. It is added to the buttons if it is not
   // already in the list, so it can be picked for "Show totals in" and for expenses.
@@ -106,8 +118,6 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
   };
 
   const loadAll = useCallback(async () => {
-    if (!isOnlineNow()) return; // no signal: keep showing what we have
-
     try {
       const membersResponse = await firestoreFetch(
         `${FIRESTORE_BASE}/profiles?pageSize=300`,
@@ -346,7 +356,8 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
     setRate('1');
     setRateNote('');
     setPayer(profile.name);
-    setSplit(members.map(member => member.name));
+    setSplit([]); // nobody ticked: choose who shares it (or tap 👥 Everyone)
+    setPersonal(false);
     setShowForm(true);
     scrollTop();
   };
@@ -362,6 +373,7 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
     setRateNote('');
     setPayer(expense.payer);
     setSplit(expense.split);
+    setPersonal(isPersonal(expense));
     setShowForm(true);
     scrollTop();
   };
@@ -379,6 +391,9 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
         : [...previous, name]
     );
   };
+
+  // Who shares this expense: just the payer when it is personal, otherwise the ticked people
+  const effectiveSplit = personal && payer ? [payer] : split;
 
   const numericAmount = Number(amount.replace(',', '.'));
   const numericRate = Number(rate.replace(',', '.'));
@@ -400,7 +415,7 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
       !Number.isFinite(numericRate) ||
       numericRate <= 0 ||
       !payer ||
-      split.length === 0
+      effectiveSplit.length === 0
     ) {
       alert(
         'Enter a description, a valid amount and exchange rate, select who paid, and select who shares it.'
@@ -416,7 +431,7 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
       amountBase: numericAmount * numericRate,
       baseCurrency: base,
       payer,
-      split,
+      split: effectiveSplit,
     };
 
     // Editing one that is still waiting on this phone: just update it there
@@ -510,80 +525,42 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
     }
   };
 
-  // Simplest transfers to settle up, all in the base currency
-  const calculateTransfers = () => {
-    const balances = {};
-
-    allExpenses.forEach(expense => {
-      if (!expense.split.length) return;
-      const share = expense.amountBase / expense.split.length;
-
-      expense.split.forEach(name => {
-        balances[name] = (balances[name] || 0) - share;
-      });
-      balances[expense.payer] = (balances[expense.payer] || 0) + expense.amountBase;
-    });
-
-    const debtors = Object.entries(balances)
-      .filter(([, balance]) => balance < -0.005)
-      .map(([name, balance]) => ({ name, amount: -balance }))
-      .sort((a, b) => b.amount - a.amount);
-
-    const creditors = Object.entries(balances)
-      .filter(([, balance]) => balance > 0.005)
-      .map(([name, balance]) => ({ name, amount: balance }))
-      .sort((a, b) => b.amount - a.amount);
-
-    const transfers = [];
-    let d = 0;
-    let c = 0;
-
-    while (d < debtors.length && c < creditors.length) {
-      const value = Math.min(debtors[d].amount, creditors[c].amount);
-      transfers.push({ from: debtors[d].name, to: creditors[c].name, amount: value });
-      debtors[d].amount -= value;
-      creditors[c].amount -= value;
-      if (debtors[d].amount < 0.005) d++;
-      if (creditors[c].amount < 0.005) c++;
-    }
-
-    return transfers;
-  };
-
-  // Who paid what: what each person paid, their share of the costs, and the difference
-  const buildPaid = () => {
-    const paid = {};
-    const share = {};
-    allExpenses.forEach(expense => {
-      paid[expense.payer] = (paid[expense.payer] || 0) + expense.amountBase;
-      if (!expense.split.length) return;
-      const each = expense.amountBase / expense.split.length;
-      expense.split.forEach(n => {
-        share[n] = (share[n] || 0) + each;
-      });
-    });
-    const names = [
-      ...new Set([...members.map(m => m.name), ...Object.keys(paid), ...Object.keys(share)]),
-    ];
-    return names.map(name => ({
-      name,
-      paid: paid[name] || 0,
-      share: share[name] || 0,
-      balance: (paid[name] || 0) - (share[name] || 0),
-    }));
-  };
-
   const factor = displayRate || 1;
   const shownCurrency = displayRate ? displayCurrency : base;
   const show = n => money(n * factor);
+  const cur = n => `${shownCurrency} ${show(n)}`;
 
-  const transfers = calculateTransfers();
-  const paidRows = buildPaid();
+  // ---- the sums (see expenseStats.js) ----
+  const stats = buildStats(allExpenses, members.map(m => m.name));
+  const transfers = buildTransfers(stats);
   const totalSpent = allExpenses.reduce((sum, e) => sum + e.amountBase, 0);
   const characterOf = name => members.find(m => m.name === name)?.character;
   // the person who is furthest behind on paying their share
-  const behind = paidRows.reduce((low, r) => (!low || r.balance < low.balance ? r : low), null);
+  const behind = stats.reduce((low, r) => (!low || r.balance < low.balance ? r : low), null);
   const nextPayer = allExpenses.length && behind && behind.balance < -0.005 ? behind : null;
+
+  // my own numbers
+  const mine = stats.find(r => r.name === profile.name) || {
+    paid: 0,
+    personal: 0,
+    shared: 0,
+    share: 0,
+    balance: 0,
+  };
+  // my paid-for-others / paid-by-others breakdown (only used by the My spending card)
+  const flows = myFlows(allExpenses, profile.name);
+  const flowLines = obj =>
+    Object.entries(obj)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, amt]) => `${name} ${cur(amt)}`)
+      .join(' · ');
+  const personalTotal = allExpenses.filter(isPersonal).reduce((s, e) => s + e.amountBase, 0);
+  const sharedTotal = totalSpent - personalTotal;
+
+  // the filtered list
+  const list =
+    listFilter === 'personal' ? myPersonalExpenses(allExpenses, profile.name) : allExpenses;
+  const listTotal = list.reduce((s, e) => s + e.amountBase, 0);
 
   const memberItems = members.map(m => [m.name, m.name]);
 
@@ -636,23 +613,124 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
 
         </View>
 
-        {/* Total spent + settle up */}
+        {/* Currency for all the numbers on this page */}
         <View style={ui.card}>
-          <Text style={ui.h3}>Total spent</Text>
-
-          <Text style={ui.label}>Show totals in</Text>
+          <Text style={ui.label}>Show amounts in</Text>
           <Pills
             items={currencyList.map(code => [code, code])}
             selected={id => displayCurrency === id}
             onPress={setDisplayCurrency}
           />
           {displayNote ? <Text style={ui.hint}>{displayNote}</Text> : null}
+        </View>
+
+        {/* My spending: just me. Tap the header to show or hide the details */}
+        <View style={ui.card}>
+          <TouchableOpacity activeOpacity={0.7} onPress={() => setSpendOpen(o => !o)}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={ui.kicker}>JUST YOU</Text>
+                <Text style={ui.h3}>My spending, {profile.name}</Text>
+              </View>
+              <Text style={[ui.sub, { marginTop: 0, fontSize: 16 }]}>{spendOpen ? '▴' : '▾'}</Text>
+            </View>
+          </TouchableOpacity>
+
+          {allExpenses.length === 0 ? (
+            <View style={ui.notice}>
+              <Text style={ui.noticeText}>Add an expense to see what you have spent.</Text>
+            </View>
+          ) : (
+            <View>
+              <View style={styles.miniWrap}>
+                <View style={styles.mini}>
+                  <Text style={styles.miniLabel}>TOTAL SPENDING</Text>
+                  <Text style={styles.miniValue}>{show(mine.share)}</Text>
+                </View>
+                <View style={styles.mini}>
+                  <Text style={styles.miniLabel}>PERSONAL</Text>
+                  <Text style={styles.miniValue}>{show(mine.personal)}</Text>
+                </View>
+                <View style={styles.mini}>
+                  <Text style={styles.miniLabel}>👥 SHARED (MY PART)</Text>
+                  <Text style={styles.miniValue}>{show(mine.shared)}</Text>
+                </View>
+              </View>
+              <Text style={ui.hint}>
+                Amounts in {shownCurrency}. Total spending = personal + my part of shared.
+                {spendOpen ? '' : ' Tap the arrow for details.'}
+              </Text>
+
+              {spendOpen ? (
+                <View>
+                  {/* How what I paid and what was spent on me fit together */}
+                  <View style={ui.panel}>
+                    <Text style={ui.strong}>What I paid</Text>
+                    <View style={styles.calcRow}>
+                      <Text style={styles.calcLabel}>I paid</Text>
+                      <Text style={styles.calcValue}>{cur(flows.paid)}</Text>
+                    </View>
+                    <View style={styles.calcRow}>
+                      <Text style={styles.calcLabel}>− paid for others (they repay me)</Text>
+                      <Text style={styles.calcValue}>−{cur(flows.forOthers)}</Text>
+                    </View>
+                    <View style={[styles.calcRow, styles.calcTotal]}>
+                      <Text style={[styles.calcLabel, { fontWeight: '800' }]}>= paid for myself</Text>
+                      <Text style={[styles.calcValue, { fontWeight: '800' }]}>{cur(flows.ownPaid)}</Text>
+                    </View>
+                    <View style={styles.calcRow}>
+                      <Text style={styles.calcLabel}>+ paid by others for me (I repay them)</Text>
+                      <Text style={styles.calcValue}>+{cur(flows.byOthers)}</Text>
+                    </View>
+                    <View style={[styles.calcRow, styles.calcTotal]}>
+                      <Text style={[styles.calcLabel, { fontWeight: '800' }]}>= total spending</Text>
+                      <Text style={[styles.calcValue, { fontWeight: '800' }]}>{cur(flows.share)}</Text>
+                    </View>
+
+                    {Object.keys(flows.toMe).length > 0 ? (
+                      <Text style={[ui.sub, { fontSize: 12, marginTop: 8 }]}>
+                        I paid for: {flowLines(flows.toMe)}
+                      </Text>
+                    ) : null}
+                    {Object.keys(flows.fromOthers).length > 0 ? (
+                      <Text style={[ui.sub, { fontSize: 12, marginTop: 2 }]}>
+                        Paid for me by: {flowLines(flows.fromOthers)}
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  <View style={ui.notice}>
+                    <Text style={ui.noticeText}>
+                      {Math.abs(mine.balance) < 0.005
+                        ? "You're even with the group."
+                        : mine.balance > 0
+                        ? `Others owe you ${cur(mine.balance)} in total.`
+                        : `You owe others ${cur(-mine.balance)} in total.`}
+                    </Text>
+                  </View>
+                  <Text style={ui.hint}>
+                    This card is only about you. It does not change the totals, the shared costs
+                    or "Who owes who", which still add everyone together. The amounts per person
+                    are before netting, so "Who owes who" can show smaller payments.
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          )}
+        </View>
+
+        {/* Total spent + settle up */}
+        <View style={ui.card}>
+          <Text style={ui.h3}>Total spent (everyone)</Text>
 
           <View style={styles.metric}>
-            <Text style={styles.metricText}>
-              {shownCurrency} {show(totalSpent)}
-            </Text>
+            <Text style={styles.metricText}>{cur(totalSpent)}</Text>
           </View>
+          {allExpenses.length > 0 ? (
+            <Text style={ui.hint}>
+              👥 Shared {cur(sharedTotal)} · Personal {cur(personalTotal)}
+            </Text>
+          ) : null}
 
           <View style={ui.panel}>
             <Text style={ui.h3}>Who owes who</Text>
@@ -666,31 +744,35 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
               transfers.map((transfer, index) => (
                 <Text key={index} style={[ui.sub, { color: P.ink, marginTop: 8 }]}>
                   {transfer.from} → {transfer.to}:{' '}
-                  <Text style={{ fontWeight: '800' }}>
-                    {shownCurrency} {show(transfer.amount)}
-                  </Text>
+                  <Text style={{ fontWeight: '800' }}>{cur(transfer.amount)}</Text>
                 </Text>
               ))
             )}
           </View>
 
           <View style={ui.panel}>
-            <Text style={ui.h3}>Who paid what</Text>
+            <Text style={ui.h3}>Who paid and spent what</Text>
             {allExpenses.length === 0 ? (
               <View style={ui.notice}>
                 <Text style={ui.noticeText}>Add an expense to see who has paid what.</Text>
               </View>
             ) : (
               <View>
-                {paidRows.map(r => {
+                {stats.map(r => {
                   const even = Math.abs(r.balance) < 0.005;
                   return (
                     <View key={r.name} style={styles.paidRow}>
                       <Avatar characterId={characterOf(r.name) || 'fox'} size={26} />
                       <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={ui.strong}>{r.name}</Text>
+                        <Text style={ui.strong}>
+                          {r.name}
+                          {r.name === profile.name ? ' (You)' : ''}
+                        </Text>
                         <Text style={[ui.sub, { fontSize: 12 }]}>
-                          Paid {shownCurrency} {show(r.paid)} · Share {shownCurrency} {show(r.share)}
+                          Paid {cur(r.paid)} · Spent {cur(r.share)}
+                        </Text>
+                        <Text style={[ui.sub, { fontSize: 12, marginTop: 0 }]}>
+                          Personal {cur(r.personal)} · 👥 Shared {cur(r.shared)}
                         </Text>
                       </View>
                       <View
@@ -714,82 +796,122 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
                 <View style={ui.notice}>
                   <Text style={ui.noticeText}>
                     {nextPayer
-                      ? `💳 Next to pay: ${nextPayer.name} (has paid the least compared with their share)`
+                      ? `💳 Next to pay: ${nextPayer.name} (has paid the least compared with what was spent on them)`
                       : 'Everyone is even right now.'}
                   </Text>
                 </View>
               </View>
             )}
             <Text style={ui.hint}>
-              The number on the right is what they paid minus their share. Plus means others owe them,
-              minus means they owe others.
+              "Spent" is what was spent on that person. The number on the right is what they paid
+              minus what was spent on them. Plus means others owe them, minus means they owe others.
             </Text>
           </View>
         </View>
 
-        {/* All expenses */}
+        {/* All expenses, with filters */}
         <View style={ui.card}>
-          <Text style={ui.h3}>All expenses ({allExpenses.length})</Text>
+          <Text style={ui.h3}>
+            Expenses ({list.length}
+            {list.length !== allExpenses.length ? ` of ${allExpenses.length}` : ''})
+          </Text>
 
-          {allExpenses.length === 0 && (
+          <View style={{ marginTop: 6 }}>
+            <Pills
+              items={LIST_FILTERS}
+              selected={id => listFilter === id}
+              onPress={setListFilter}
+            />
+          </View>
+          {listFilter === 'personal' ? (
+            <Text style={ui.hint}>
+              Only expenses you paid for yourself. They add up to the Personal amount in My
+              spending.
+            </Text>
+          ) : null}
+
+          {allExpenses.length > 0 ? (
             <View style={ui.notice}>
               <Text style={ui.noticeText}>
-                No expenses yet. Add one above to start splitting costs.
+                {listFilter === 'personal' ? 'My personal expenses add up to ' : 'Total of all '}
+                {cur(listTotal)}
+              </Text>
+            </View>
+          ) : null}
+
+          {list.length === 0 && (
+            <View style={ui.notice}>
+              <Text style={ui.noticeText}>
+                {allExpenses.length === 0
+                  ? 'No expenses yet. Add one above to start splitting costs.'
+                  : 'You have no personal expenses yet. Add one with Myself under Split between.'}
               </Text>
             </View>
           )}
 
-          {allExpenses.map(expense => (
-            <View key={expense.id} style={ui.listCard}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={[ui.strong, { flex: 1, marginRight: 8 }]}>
-                  {expense.what}
-                </Text>
-                <Text style={[ui.strong, { fontFamily: MONO }]}>
-                  {expense.currency} {money(expense.amount)}
-                </Text>
-              </View>
+          {list.map(expense => {
+            const personalOne = isPersonal(expense);
+            return (
+              <View key={expense.id} style={ui.listCard}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={[ui.tag, personalOne && { backgroundColor: P.warnBg }]}>
+                    <Text style={ui.tagText}>{personalOne ? 'Personal' : '👥 Shared'}</Text>
+                  </View>
+                  {expense.pending ? (
+                    <Text style={[ui.sub, { marginTop: 0, marginLeft: 8, fontWeight: '800' }]}>
+                      ⏳ Waiting to sync
+                    </Text>
+                  ) : null}
+                </View>
 
-              {expense.pending ? (
-                <Text style={[ui.sub, { fontWeight: '800' }]}>⏳ Waiting to sync</Text>
-              ) : null}
-
-              {expense.currency !== base ? (
-                <Text style={ui.sub}>
-                  ≈ {base} {money(expense.amountBase)}{expense.converted ? '' : ` (rate ${expense.rate})`}
-                </Text>
-              ) : null}
-
-              <Text style={ui.sub}>
-                Paid by {expense.payer} · split {expense.split.length} ways
-                {expense.split.length ? ` (${expense.split.join(', ')})` : ''}
-              </Text>
-
-              {expense.addedByCharacter ? (
-                <View style={ui.byRow}>
-                  <Avatar characterId={expense.addedByCharacter} size={22} />
-                  <Text style={[ui.sub, { marginTop: 0, marginLeft: 8 }]}>
-                    Added by {expense.addedByName}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 3 }}>
+                  <Text style={[ui.strong, { flex: 1, marginRight: 8 }]}>{expense.what}</Text>
+                  <Text style={[ui.strong, { fontFamily: MONO }]}>
+                    {expense.currency} {money(expense.amount)}
                   </Text>
                 </View>
-              ) : null}
 
-              <View style={[ui.row, { marginTop: 12 }]}>
-                <TouchableOpacity
-                  style={[ui.pill, ui.pillSmall]}
-                  onPress={() => startEdit(expense)}
-                >
-                  <Text style={[ui.pillText, ui.pillTextSmall]}>Edit</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[ui.pill, ui.pillSmall, ui.pillDanger]}
-                  onPress={() => deleteExpense(expense.id)}
-                >
-                  <Text style={[ui.pillText, ui.pillTextSmall, ui.pillDangerText]}>Delete</Text>
-                </TouchableOpacity>
+                {expense.currency !== base ? (
+                  <Text style={ui.sub}>
+                    ≈ {base} {money(expense.amountBase)}
+                    {expense.converted ? '' : ` (rate ${expense.rate})`}
+                  </Text>
+                ) : null}
+
+                <Text style={ui.sub}>
+                  {personalOne
+                    ? `Paid by ${expense.payer} · only ${expense.payer}`
+                    : `Paid by ${expense.payer} · split ${expense.split.length} ways${
+                        expense.split.length ? ` (${expense.split.join(', ')})` : ''
+                      }`}
+                </Text>
+
+                {expense.addedByCharacter ? (
+                  <View style={ui.byRow}>
+                    <Avatar characterId={expense.addedByCharacter} size={20} />
+                    <Text style={[ui.sub, { marginTop: 0, marginLeft: 8 }]}>
+                      Added by {expense.addedByName}
+                    </Text>
+                  </View>
+                ) : null}
+
+                <View style={[ui.row, { marginTop: 8 }]}>
+                  <TouchableOpacity
+                    style={[ui.pill, ui.pillSmall]}
+                    onPress={() => startEdit(expense)}
+                  >
+                    <Text style={[ui.pillText, ui.pillTextSmall]}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[ui.pill, ui.pillSmall, ui.pillDanger]}
+                    onPress={() => deleteExpense(expense.id)}
+                  >
+                    <Text style={[ui.pillText, ui.pillTextSmall, ui.pillDangerText]}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
         </View>
       </ScrollView>
 
@@ -857,23 +979,49 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
 
               <Text style={ui.label}>Split between</Text>
               <View style={ui.row}>
-                {members.map(member => {
-                  const on = split.includes(member.name);
-                  return (
-                    <TouchableOpacity
-                      key={member.id}
-                      onPress={() => toggleSplit(member.name)}
-                      style={[ui.pill, ui.pillSmall, on && ui.pillActive]}
-                    >
-                      <Text style={[ui.pillText, ui.pillTextSmall]}>
-                        {on ? '✓ ' : ''}{member.name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                <TouchableOpacity
+                  style={[ui.pill, ui.pillSmall, personal && ui.pillActive]}
+                  onPress={() => setPersonal(p => !p)}
+                >
+                  <Text style={[ui.pillText, ui.pillTextSmall]}>
+                    {personal ? '✓ ' : ''}{!payer || payer === profile.name ? 'Myself' : `Just ${payer}`}
+                  </Text>
+                </TouchableOpacity>
+                {!personal ? (
+                  <TouchableOpacity
+                    style={[ui.pill, ui.pillSmall]}
+                    onPress={() => setSplit(members.map(m => m.name))}
+                  >
+                    <Text style={[ui.pillText, ui.pillTextSmall]}>👥 Everyone</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
-              <View style={[ui.row, { marginTop: 14 }]}>
+              {personal ? (
+                <Text style={ui.hint}>
+                  Only {payer || 'the payer'} shares this, so it counts as their own spending and
+                  won't change who owes who.
+                </Text>
+              ) : (
+                <View style={[ui.row, { marginTop: 4 }]}>
+                  {members.map(member => {
+                    const on = split.includes(member.name);
+                    return (
+                      <TouchableOpacity
+                        key={member.id}
+                        onPress={() => toggleSplit(member.name)}
+                        style={[ui.pill, ui.pillSmall, on && ui.pillActive]}
+                      >
+                        <Text style={[ui.pillText, ui.pillTextSmall]}>
+                          {on ? '✓ ' : ''}{member.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              <View style={[ui.row, { marginTop: 12 }]}>
                 <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={saveExpense}>
                   <Text style={ui.pillText}>{editingId ? 'Save changes' : 'Save expense'}</Text>
                 </TouchableOpacity>
@@ -895,25 +1043,45 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#9dbcae',
     borderRadius: 999,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    marginRight: 8,
-    marginBottom: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 9,
+    marginRight: 6,
+    marginBottom: 6,
   },
   metric: {
     backgroundColor: P.panel,
     borderWidth: 2,
     borderColor: P.ink,
-    borderRadius: 17,
-    padding: 14,
-    marginTop: 14,
+    borderRadius: 14,
+    padding: 10,
+    marginTop: 8,
   },
-  metricText: { color: P.ink, fontSize: 30, fontWeight: '800', fontFamily: MONO },
+  metricText: { color: P.ink, fontSize: 26, fontWeight: '800', fontFamily: MONO },
+
+  // "My spending" boxes, two per row
+  miniWrap: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  mini: {
+    width: '32%',
+    backgroundColor: P.panel,
+    borderWidth: 2,
+    borderColor: P.ink,
+    borderRadius: 12,
+    padding: 8,
+    marginTop: 8,
+  },
+  miniLabel: { color: P.muted, fontSize: 9, fontWeight: '800', letterSpacing: 0.4 },
+  miniValue: { color: P.ink, fontSize: 14, fontWeight: '800', fontFamily: MONO, marginTop: 2 },
+
+  // the little sums in My spending
+  calcRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  calcLabel: { color: P.ink, fontSize: 13, flex: 1, marginRight: 8 },
+  calcValue: { color: P.ink, fontSize: 13, fontFamily: MONO },
+  calcTotal: { borderTopWidth: 1, borderTopColor: P.fieldBorder, marginTop: 2, paddingTop: 5 },
 
   paidRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: P.fieldBorder,
   },

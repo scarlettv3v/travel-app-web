@@ -7,6 +7,8 @@ import TripDates from './TripDates';
 import { getCategory } from './categories';
 import ReorderModal from './ReorderModal';
 import EditPlanModal from './EditPlanModal';
+import HScroll from './HScroll';
+import { syncPlanToSpot } from './linkSync';
 import LinkText from './LinkText';
 import { openPlace, openRoute } from './places';
 import { P, ui, screenContent } from './ui';
@@ -21,15 +23,38 @@ const monthDay = iso => {
   const [, m, d] = iso.split('-').map(Number);
   return `${MONTHS[m - 1]} ${d}`;
 };
-export default function ItineraryScreen({ authToken, profile, onOpenBookings }) {
+const sv = v => ({ stringValue: v || '' });
+
+// ---------------------------------------------------------------------------------------------
+// COLOURS of the flight and stay strips in "Stay & travel". Change them here.
+//   bg     = the fill colour of the strip
+//   border = the thin outline of the strip
+//   label  = the colour of the small label word (DEPARTS, ARRIVES, STAYING TONIGHT, CHECK-OUT)
+// Use any hex colour, e.g. '#c0392b'. Each of the four has its own line, so all can differ.
+// ---------------------------------------------------------------------------------------------
+const STRIP = {
+  depart:   { bg: '#dbeeff', border: '#5ba3c7', label: '#572002' }, // DEPARTS
+  arrive:   { bg: '#dbeeff', border: '#5ba3c7', label: '#572002' }, // ARRIVES
+  staying:  { bg: '#eadcf3', border: '#9b7bc4', label: '#572002' }, // STAYING TONIGHT
+  checkout: { bg: '#eadcf3', border: '#9b7bc4', label: '#572002' }, // CHECK-OUT
+};
+
+// targetDay = { iso, n } sent from Home ("Open Plan") or Bookings ("View itinerary").
+// It opens this screen on that exact day. (n changes every time, so tapping again works too.)
+export default function ItineraryScreen({ authToken, profile, onOpenBookings, targetDay }) {
   const { days: DAYS } = useTrip();
-  const [selected, setSelected] = useState(0);
+  const indexOfDay = iso => Math.max(0, DAYS.findIndex(d => d.iso === iso));
+  const [selected, setSelected] = useState(() => (targetDay ? indexOfDay(targetDay.iso) : 0));
   const [transport, setTransport] = useState([]);
   const [stays, setStays] = useState([]);
   const [plans, setPlans] = useState([]);
   const [characters, setCharacters] = useState({});
   const [reordering, setReordering] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
+
+  useEffect(() => {
+    if (targetDay) setSelected(indexOfDay(targetDay.iso));
+  }, [targetDay && targetDay.n, DAYS.length]);
 
   const loadAll = useCallback(async () => {
     try {
@@ -78,6 +103,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
         (pData.documents || []).map(doc => ({
           id: doc.name,
           spotName: str(doc, 'spotName'),
+          spotId: str(doc, 'spotId'), // the Spot this was made from (empty for older items)
           category: str(doc, 'category') || 'spot',
           note: str(doc, 'note'),
           date: str(doc, 'date'),
@@ -210,11 +236,33 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
     }
   };
 
-  const savePlanEdit = async (plan, date, time) => {
+  // Saves an edit from the Edit popup. Returns true when it worked.
+  //  - A spot's item also updates its Spot (and the same spot on other days).
+  //  - A booked activity / restaurant IS the booking, so Bookings updates by itself.
+  //  - "Who's joining" belongs to this item only, so it is never copied to the spot or other days.
+  const savePlanEdit = async (plan, v) => {
+    const locked = plan.source === 'booking';
     try {
-      let mask = 'updateMask.fieldPaths=date&updateMask.fieldPaths=time';
+      const fields = {
+        date: sv(v.date),
+        time: sv(v.time),
+        spotName: sv(v.name),
+        address: sv(v.address),
+        note: sv(v.note),
+        joining: { arrayValue: { values: (v.joining || []).map(n => ({ stringValue: n })) } },
+      };
+      if (locked) {
+        fields.confirmation = sv(v.confirmation);
+        if (plan.bookingKind === 'restaurant') fields.partySize = sv(v.partySize);
+      } else {
+        fields.category = sv(v.category);
+      }
+
+      let mask = Object.keys(fields)
+        .map(key => `updateMask.fieldPaths=${key}`)
+        .join('&');
       // Moving to another day clears the manual order, so it sorts by time there
-      if (date !== plan.date) mask += '&updateMask.fieldPaths=order';
+      if (v.date !== plan.date) mask += '&updateMask.fieldPaths=order';
 
       await firestoreFetch(
         `https://firestore.googleapis.com/v1/${plan.id}?${mask}`,
@@ -222,19 +270,31 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            fields: {
-              date: { stringValue: date },
-              time: { stringValue: time },
-            },
-          }),
+          body: JSON.stringify({ fields }),
         }
       );
-      await loadAll();
     } catch (error) {
       console.error('Error editing plan:', error);
       alert('Could not save the changes.');
+      return false;
     }
+
+    if (!locked) {
+      try {
+        await syncPlanToSpot(
+          plan,
+          { name: v.name, address: v.address, note: v.note, category: v.category },
+          plans,
+          authToken
+        );
+      } catch (error) {
+        console.error('Error updating the spot:', error);
+        alert('Saved here, but the matching spot in Spots could not be updated.');
+      }
+    }
+
+    await loadAll();
+    return true;
   };
 
   // ---------- small render helpers ----------
@@ -270,57 +330,70 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
       </View>
     ) : null;
 
-  // a transport strip: blue, compact, clearly "getting there"
-  const renderTravel = ({ t, dir }) => (
-    <View key={t.id + dir} style={[styles.strip, styles.travelStrip]}>
-      <View style={styles.stripIcon}>
-        <Text style={{ fontSize: 14 }}>{TRANSPORT_EMOJI[t.type] || '✈️'}</Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.stripLabel}>
-          {dir === 'arrive' ? `ARRIVES ${t.arriveTime || ''}` : `DEPARTS ${t.departTime || 'TIME TBC'}`}
-        </Text>
-        <Text style={ui.strong}>
-          {t.from} → {t.to}
-        </Text>
-        <Text style={[ui.sub, { fontSize: 12, marginTop: 0 }]}>
-          {[t.provider, t.reference].filter(Boolean).join(' ')}
-          {t.confirmation ? ` · Conf: ${t.confirmation}` : ''}
-        </Text>
-        {dir === 'depart' && t.arriveTime ? (
-          <Text style={[ui.sub, { fontSize: 12, marginTop: 0 }]}>
-            Arrives {t.arriveDate !== day.iso ? `${t.arriveDate} ` : ''}
-            {t.arriveTime}
-          </Text>
-        ) : null}
-      </View>
-      {renderJoiners(t.joining)}
-    </View>
-  );
-
-  // a stay strip: lavender, "where you sleep"
-  const renderStay = (s, label, title, sub) => (
-    <View key={s.id + label} style={[styles.strip, styles.stayStrip]}>
-      <View style={styles.stripIcon}>
-        <Text style={{ fontSize: 14 }}>{label === 'CHECK-OUT' ? '🧳' : '🏨'}</Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.stripLabel}>{label}</Text>
-        <Text style={ui.strong}>{title}</Text>
-        {sub.map((line, i) => (
-          <Text key={i} style={[ui.sub, { fontSize: 12, marginTop: 0 }]}>
-            {line}
-          </Text>
-        ))}
-        <View style={[ui.row, { marginTop: 4 }]}>
-          {pillBtn('Google Maps', () => openPlace({ name: s.name, address: s.address }))}
+  // a transport strip: one row per detail, tight padding. Colours come from STRIP at the top.
+  const renderTravel = ({ t, dir }) => {
+    const c = STRIP[dir === 'arrive' ? 'arrive' : 'depart'];
+    return (
+      <View
+        key={t.id + dir}
+        style={[styles.strip, { backgroundColor: c.bg, borderColor: c.border }]}
+      >
+        <View style={styles.stripIcon}>
+          <Text style={{ fontSize: 13 }}>{TRANSPORT_EMOJI[t.type] || '✈️'}</Text>
         </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.stripLabel, { color: c.label }]}>
+            {dir === 'arrive' ? `ARRIVES ${t.arriveTime || ''}` : `DEPARTS ${t.departTime || 'TIME TBC'}`}
+          </Text>
+          <Text style={ui.strong}>
+            {t.from} → {t.to}
+          </Text>
+          <Text style={[ui.sub, { fontSize: 12, marginTop: 0 }]}>
+            {[t.provider, t.reference].filter(Boolean).join(' ')}
+            {t.confirmation ? ` · Conf: ${t.confirmation}` : ''}
+          </Text>
+          {dir === 'depart' && t.arriveTime ? (
+            <Text style={[ui.sub, { fontSize: 12, marginTop: 0 }]}>
+              Arrives {t.arriveDate !== day.iso ? `${t.arriveDate} ` : ''}
+              {t.arriveTime}
+            </Text>
+          ) : null}
+        </View>
+        {renderJoiners(t.joining)}
       </View>
-      {renderJoiners(s.joining)}
-    </View>
-  );
+    );
+  };
 
-  // a card in the plan timeline
+  // a stay strip: one row per detail, tight padding. kind = 'staying' or 'checkout'.
+  const renderStay = (s, kind, label, title, sub) => {
+    const c = STRIP[kind];
+    return (
+      <View
+        key={s.id + kind}
+        style={[styles.strip, { backgroundColor: c.bg, borderColor: c.border }]}
+      >
+        <View style={styles.stripIcon}>
+          <Text style={{ fontSize: 13 }}>{kind === 'checkout' ? '🧳' : '🏨'}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.stripLabel, { color: c.label }]}>{label}</Text>
+          <Text style={ui.strong}>{title}</Text>
+          {sub.map((line, i) => (
+            <Text key={i} style={[ui.sub, { fontSize: 12, marginTop: 0 }]}>
+              {line}
+            </Text>
+          ))}
+          <View style={[ui.row, { marginTop: 3 }]}>
+            {pillBtn('Google Maps', () => openPlace({ name: s.name, address: s.address }))}
+          </View>
+        </View>
+        {renderJoiners(s.joining)}
+      </View>
+    );
+  };
+
+  // a card in the plan timeline. The time sits in the card's top row, so the timeline
+  // only needs a thin number rail on the left and the card gets the rest of the width.
   const renderStopCard = (p, index) => {
     const locked = p.source === 'booking';
     const iAmIn = p.joining.includes(profile.name);
@@ -332,12 +405,16 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
 
     return (
       <View style={[ui.listCard, { marginTop: 0 }]}>
-        <View style={[ui.tag, locked && { backgroundColor: P.mint }]}>
-          <Text style={ui.tagText}>
-            {locked
-              ? '🔒 Booked · from Bookings'
-              : `${getCategory(p.category).emoji} ${getCategory(p.category).label}`}
-          </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={[ui.tag, locked && { backgroundColor: P.mint }]}>
+            <Text style={ui.tagText}>
+              {locked
+                ? '🔒 Booked · from Bookings'
+                : `${getCategory(p.category).emoji} ${getCategory(p.category).label}`}
+            </Text>
+          </View>
+          <View style={{ flex: 1 }} />
+          {p.time ? <Text style={styles.cardTime}>🕒 {p.time}</Text> : null}
         </View>
 
         <Text style={[ui.h3, { marginTop: 3 }]}>
@@ -363,22 +440,15 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
 
         <View style={[ui.row, { marginTop: 6 }]}>
           {pillBtn(iAmIn ? 'Leave' : "I'm in", () => toggleJoin(p))}
+          {pillBtn('Google Maps', () => openPlace({ name: p.spotName, address: p.address }))}
+          {pillBtn('Edit', () => setEditingPlan(p))}
           {locked ? (
-            <>
-              {pillBtn('Google Maps', () => openPlace({ name: p.spotName, address: p.address }))}
-              {onOpenBookings ? pillBtn('Manage in Bookings', onOpenBookings) : null}
-            </>
+            onOpenBookings ? pillBtn('Bookings', onOpenBookings) : null
           ) : (
-            <>
-              {pillBtn('Google Maps', () =>
-                openPlace({ name: p.spotName, address: p.address })
-              )}
-              {pillBtn('Edit', () => setEditingPlan(p))}
-              {pillBtn('Delete', () => removePlan(p), {
-                pill: ui.pillDanger,
-                text: ui.pillDangerText,
-              })}
-            </>
+            pillBtn('Delete', () => removePlan(p), {
+              pill: ui.pillDanger,
+              text: ui.pillDangerText,
+            })
           )}
         </View>
       </View>
@@ -400,7 +470,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
 
           <TripDates />
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+          <HScroll style={{ marginTop: 8 }}>
             {DAYS.map((d, index) => (
               <TouchableOpacity
                 key={d.iso}
@@ -412,7 +482,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
                 </Text>
               </TouchableOpacity>
             ))}
-          </ScrollView>
+          </HScroll>
 
           <Text style={[ui.h3, { marginTop: 2 }]}>
             {`Day ${day.dayNumber}\u2009-\u2009${monthDay(day.iso)} (${day.weekday})`}
@@ -422,7 +492,6 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
         {/* Stay & travel: logistics, kept apart from the activities */}
         <View style={ui.card}>
           <Text style={ui.h3}>Stay & travel</Text>
-          <Text style={ui.sub}>Getting around and where you sleep</Text>
 
           {!hasLogistics && empty('No transport or stay for this day. Add details in Bookings.')}
 
@@ -430,6 +499,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
           {checkingOut.map(s =>
             renderStay(
               s,
+              'checkout',
               'CHECK-OUT',
               `Check out of ${s.name}`,
               s.checkOutTime ? [`by ${s.checkOutTime}`] : []
@@ -438,6 +508,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
           {stayingTonight.map(s =>
             renderStay(
               s,
+              'staying',
               'STAYING TONIGHT',
               s.name,
               [
@@ -473,9 +544,6 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
           <View style={{ marginTop: 8 }}>
             {stops.map((p, index) => (
               <View key={p.id} style={styles.tlRow}>
-                <View style={styles.tlTime}>
-                  <Text style={styles.tlTimeText}>{p.time || '—'}</Text>
-                </View>
                 <View style={styles.tlRail}>
                   <View
                     style={[
@@ -523,6 +591,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
       />
       <EditPlanModal
         plan={editingPlan}
+        characters={characters}
         onSave={savePlanEdit}
         onClose={() => setEditingPlan(null)}
       />
@@ -531,46 +600,43 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings }) 
 }
 
 const styles = StyleSheet.create({
-  // stay / travel strips (compact)
+  // stay / travel strips: tight bubble. Their colours are in STRIP at the top of this file.
   strip: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
-    paddingVertical: 7,
-    paddingHorizontal: 9,
-    marginTop: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 7,
+    marginTop: 4,
   },
-  travelStrip: { backgroundColor: '#dbeeff', borderColor: '#5ba3c7' },
-  stayStrip: { backgroundColor: '#eadcf3', borderColor: '#9b7bc4' },
   stripIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: '#fff',
     borderWidth: 2,
     borderColor: P.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    marginRight: 7,
   },
   stripLabel: { color: P.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
 
-  // timeline
+  // timeline: just a thin rail with the stop number; the time is inside each card
   tlRow: { flexDirection: 'row' },
-  tlTime: { width: 42, paddingTop: 4, alignItems: 'flex-end', paddingRight: 4 },
-  tlTimeText: { color: P.muted, fontSize: 11, fontWeight: '800', fontFamily: MONO },
-  tlRail: { width: 26, alignItems: 'center' },
+  tlRail: { width: 20, alignItems: 'center' },
   tlDot: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     borderWidth: 2,
     borderColor: P.ink,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tlDotText: { color: P.ink, fontSize: 11, fontWeight: '800' },
+  tlDotText: { color: P.ink, fontSize: 10, fontWeight: '800' },
   tlLine: { flex: 1, width: 3, backgroundColor: P.line, marginVertical: 2 },
   tlBody: { flex: 1, paddingBottom: 8, paddingLeft: 4 },
+  cardTime: { color: P.ink, fontSize: 12, fontWeight: '800', fontFamily: MONO },
 });
