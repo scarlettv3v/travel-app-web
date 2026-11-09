@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Text,
   View,
+  StyleSheet,
   TouchableOpacity,
   TextInput,
   ScrollView,
@@ -13,7 +14,6 @@ import DatePicker, { formatDate } from './DatePicker';
 import LinkText from './LinkText';
 import { openPlace } from './places';
 import Popup from './Popup';
-import HScroll from './HScroll';
 import { P, ui, screenContent } from './ui';
 
 const TYPES = [
@@ -474,15 +474,15 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
   };
 
   const renderWho = item => (
-    <View style={{ marginTop: 8 }}>
+    <View style={{ marginTop: 6 }}>
       <Text style={[ui.sub, { marginTop: 0 }]}>Who's on this?</Text>
-      <View style={[ui.row, { marginTop: 4 }]}>
+      <View style={[ui.row, { marginTop: 3 }]}>
         {(item.joining || []).length === 0 ? (
           <Text style={[ui.sub, { marginTop: 0 }]}>Nobody yet. Tap "I'm on this".</Text>
         ) : (
           item.joining.map(name => (
             <View key={name} style={{ alignItems: 'center', marginRight: 8 }}>
-              <Avatar characterId={characters[name] || 'fox'} size={22} />
+              <Avatar characterId={characters[name] || 'fox'} size={20} />
               <Text style={{ color: '#526873', fontSize: 10 }}>{name}</Text>
             </View>
           ))
@@ -505,11 +505,11 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
 
   const renderAddedBy = item =>
   item.addedByName ? (
-    <Text style={[ui.sub, { marginTop: 2 }]}>Added by {item.addedByName}</Text>
+    <Text style={[ui.sub, { marginTop: 1 }]}>Added by {item.addedByName}</Text>
   ) : null;
 
   const renderButtons = (kind, item, extra) => (
-    <View style={[ui.row, { marginTop: 8 }]}>
+    <View style={[ui.row, { marginTop: 6 }]}>
       {extra}
       <TouchableOpacity style={[ui.pill, ui.pillSmall]} onPress={() => startEdit(kind, item)}>
         <Text style={[ui.pillText, ui.pillTextSmall]}>Edit</Text>
@@ -565,15 +565,15 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
           <View style={{ flex: 1 }} />
           {names.slice(0, 3).map(n => (
             <View key={n} style={{ marginLeft: 2 }}>
-              <Avatar characterId={characters[n] || 'fox'} size={18} />
+              <Avatar characterId={characters[n] || 'fox'} size={16} />
             </View>
           ))}
           {names.length > 3 ? (
-            <Text style={{ color: P.muted, fontSize: 11, marginLeft: 3 }}>+{names.length - 3}</Text>
+            <Text style={{ color: P.muted, fontSize: 10, marginLeft: 3 }}>+{names.length - 3}</Text>
           ) : null}
-          <Text style={[ui.sub, { marginTop: 0, marginLeft: 8, fontSize: 14 }]}>{open ? '▴' : '▾'}</Text>
+          <Text style={[ui.sub, { marginTop: 0, marginLeft: 7, fontSize: 13 }]}>{open ? '▴' : '▾'}</Text>
         </View>
-        <Text style={[ui.h3, { marginTop: 3 }]}>{title}</Text>
+        <Text style={[ui.h3, { marginTop: 2 }]}>{title}</Text>
         {!open && summary ? <Text style={ui.sub}>{summary}</Text> : null}
       </TouchableOpacity>
     );
@@ -621,7 +621,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
   );
 
   const sectionTitle = (text, first) => (
-    <Text style={[ui.h3, { marginTop: first ? 8 : 16 }]}>{text}</Text>
+    <Text style={[ui.h3, { marginTop: first ? 8 : 12 }]}>{text}</Text>
   );
 
   return (
@@ -639,21 +639,23 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
         <Text style={ui.hint}>Trip: {TRIP_LABEL}</Text>
       </View>
 
-      {/* Add buttons */}
-      <View style={ui.card}>
-        <View style={ui.row}>
-          <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={() => openForm('transport')}>
-            <Text style={ui.pillText}>+ Transport</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={() => openForm('stay')}>
-            <Text style={ui.pillText}>+ Stay</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={() => openForm('activity')}>
-            <Text style={ui.pillText}>+ Activity</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={() => openForm('restaurant')}>
-            <Text style={ui.pillText}>+ Restaurant</Text>
-          </TouchableOpacity>
+      {/* Add buttons: one row, thin box */}
+      <View style={[ui.card, { paddingVertical: 6 }]}>
+        <View style={styles.addRow}>
+          {[
+            ['transport', '+ Transport'],
+            ['stay', '+ Stay'],
+            ['activity', '+ Activity'],
+            ['restaurant', '+ Restaurant'],
+          ].map(([kind, label]) => (
+            <TouchableOpacity
+              key={kind}
+              style={styles.addPill}
+              onPress={() => openForm(kind)}
+            >
+              <Text style={styles.addText}>{label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         {outsideCount > 0
@@ -666,7 +668,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
       {/* Find a booking: search + category filter */}
       <View style={ui.card}>
         <TextInput
-          style={ui.field}
+          style={[ui.field, { paddingVertical: 5 }]}
           placeholder="🔎 Search name, place, confirmation..."
           placeholderTextColor="#8a9ca6"
           value={query}
@@ -674,29 +676,37 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
           autoCapitalize="none"
         />
 
-        <HScroll style={{ flexGrow: 0, marginTop: 8 }}>
+        {/* All filters in view: the row wraps instead of scrolling sideways */}
+        <View style={[ui.row, { marginTop: 6 }]}>
           {FILTERS.map(([id, label]) => (
             <TouchableOpacity
               key={id}
               style={[ui.pill, ui.pillSmall, filter === id && ui.pillActive]}
               onPress={() => setFilter(id)}
             >
-              <Text style={[ui.pillText, ui.pillTextSmall]}>
-                {label} ({counts[id]})
+              <Text style={[ui.pillText, ui.pillTextSmall]} numberOfLines={1}>
+                {label}
+                <Text style={styles.count}> {counts[id]}</Text>
               </Text>
             </TouchableOpacity>
           ))}
-        </HScroll>
+        </View>
 
-        <View style={[ui.row, { justifyContent: 'space-between', marginTop: 2 }]}>
-          <Text style={[ui.sub, { marginTop: 0, flex: 1 }]}>
-            Showing {visibleItems.length}
-            {q || filter !== 'all' ? ' match' + (visibleItems.length === 1 ? '' : 'es') : ' bookings'}
-            {' · tap a card to open it'}
+        {/* The count text and Expand all share one row */}
+        <View style={styles.infoRow}>
+          <Text style={styles.infoText} numberOfLines={1}>
+            {visibleItems.length}
+            {q || filter !== 'all' ? ` match${visibleItems.length === 1 ? '' : 'es'}` : ' bookings'}
+            {' · tap a card to open'}
           </Text>
           {visibleItems.length > 1 ? (
-            <TouchableOpacity style={[ui.pill, ui.pillSmall, { marginRight: 0, marginBottom: 0 }]} onPress={toggleAll}>
-              <Text style={[ui.pillText, ui.pillTextSmall]}>{allOpen ? 'Collapse all' : 'Expand all'}</Text>
+            <TouchableOpacity
+              style={[ui.pill, ui.pillSmall, { marginRight: 0, marginBottom: 0, marginLeft: 6 }]}
+              onPress={toggleAll}
+            >
+              <Text style={[ui.pillText, ui.pillTextSmall]} numberOfLines={1}>
+                {allOpen ? 'Collapse all' : 'Expand all'}
+              </Text>
             </TouchableOpacity>
           ) : null}
         </View>
@@ -833,7 +843,7 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
                         {r.confirmation ? <Text style={ui.sub}>Confirmation: {r.confirmation}</Text> : null}
                         {r.notes ? <LinkText style={ui.sub}>{`📝 ${r.notes}`}</LinkText> : null}
                         {day ? (
-                          <Text style={[ui.sub, { fontWeight: '800', color: P.ink, marginTop: 6 }]}>
+                          <Text style={[ui.sub, { fontWeight: '800', color: P.ink, marginTop: 4 }]}>
                             📅 On the itinerary: Day {day.dayNumber} · {day.short} (Booked)
                           </Text>
                         ) : (
@@ -945,3 +955,28 @@ export default function BookingsScreen({ authToken, profile, onOpenItinerary }) 
     </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  // the four "+ Transport / + Stay ..." buttons: normal separate pills at their natural width
+  // (not stretched), with a clear gap between them. If a phone is too narrow they wrap
+  // onto a second row instead of being squashed.
+  addRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  addPill: {
+    backgroundColor: P.gold,
+    borderWidth: 2,
+    borderColor: P.ink,
+    borderRadius: 999,
+    paddingVertical: 4,
+    paddingHorizontal: 5,
+    marginRight: 3,
+    marginVertical: 2,
+  },
+  addText: { color: P.ink, fontWeight: '800', fontSize: 12 },
+
+  // count after a filter name, lighter than the label
+  count: { color: P.muted, fontWeight: '700' },
+
+  // "15 bookings · tap a card to open" + Expand all on one row
+  infoRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+  infoText: { flex: 1, color: P.muted, fontSize: 11 },
+});

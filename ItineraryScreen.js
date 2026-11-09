@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Text, View, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
@@ -25,6 +25,12 @@ const monthDay = iso => {
 };
 const sv = v => ({ stringValue: v || '' });
 
+// today's date on this device, like 2026-11-23 (the phone's local time, not UTC)
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 // ---------------------------------------------------------------------------------------------
 // COLOURS of the flight and stay strips in "Stay & travel". Change them here.
 //   bg     = the fill colour of the strip
@@ -39,12 +45,24 @@ const STRIP = {
   checkout: { bg: '#eadcf3', border: '#9b7bc4', label: '#572002' }, // CHECK-OUT
 };
 
+// Outline colour of today's day pill. Change it here.
+const TODAY_COLOUR = P.coral;
+
 // targetDay = { iso, n } sent from Home ("Open Plan") or Bookings ("View itinerary").
 // It opens this screen on that exact day. (n changes every time, so tapping again works too.)
 export default function ItineraryScreen({ authToken, profile, onOpenBookings, targetDay }) {
   const { days: DAYS } = useTrip();
   const indexOfDay = iso => Math.max(0, DAYS.findIndex(d => d.iso === iso));
-  const [selected, setSelected] = useState(() => (targetDay ? indexOfDay(targetDay.iso) : 0));
+
+  // which day to open on: the tapped day, otherwise today if it is in the trip, otherwise Day 1
+  const dayToOpen = () => {
+    if (targetDay) return indexOfDay(targetDay.iso);
+    const i = DAYS.findIndex(d => d.iso === todayIso());
+    return i >= 0 ? i : 0;
+  };
+  const pickedRef = useRef(false); // true once you tap a day yourself
+  const [selected, setSelected] = useState(dayToOpen);
+
   const [transport, setTransport] = useState([]);
   const [stays, setStays] = useState([]);
   const [plans, setPlans] = useState([]);
@@ -52,9 +70,15 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings, ta
   const [reordering, setReordering] = useState(false);
   const [editingPlan, setEditingPlan] = useState(null);
 
+  // coming from Home / Bookings: open the day that was tapped
   useEffect(() => {
     if (targetDay) setSelected(indexOfDay(targetDay.iso));
   }, [targetDay && targetDay.n, DAYS.length]);
+
+  // trip dates can arrive a moment after the screen opens: pick today again, unless you chose a day
+  useEffect(() => {
+    if (!targetDay && !pickedRef.current) setSelected(dayToOpen());
+  }, [DAYS.length, DAYS[0] && DAYS[0].iso]);
 
   const loadAll = useCallback(async () => {
     try {
@@ -184,6 +208,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings, ta
   };
 
   const day = DAYS[Math.min(selected, DAYS.length - 1)];
+  const today = todayIso();
 
   const departing = transport.filter(t => t.departDate === day.iso);
   const arriving = transport.filter(t => t.arriveDate === day.iso && t.departDate !== day.iso);
@@ -210,7 +235,6 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings, ta
     return a.spotName.localeCompare(b.spotName);
   });
   const untimedPlans = stops.filter(p => !p.time && p.source !== 'booking');
-
 
   const saveOrder = async list => {
     try {
@@ -437,7 +461,6 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings, ta
           ))}
         </View>
 
-
         <View style={[ui.row, { marginTop: 6 }]}>
           {pillBtn(iAmIn ? 'Leave' : "I'm in", () => toggleJoin(p))}
           {pillBtn('Google Maps', () => openPlace({ name: p.spotName, address: p.address }))}
@@ -470,22 +493,39 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings, ta
 
           <TripDates />
 
-          <HScroll style={{ marginTop: 8 }}>
-            {DAYS.map((d, index) => (
-              <TouchableOpacity
-                key={d.iso}
-                style={[ui.pill, ui.pillSmall, index === selected && ui.pillActive]}
-                onPress={() => setSelected(index)}
-              >
-                <Text style={[ui.pillText, ui.pillTextSmall]}>
-                  {`Day ${d.dayNumber}\u2009-\u2009${monthDay(d.iso)}`}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          {/* The word TODAY sits above today's pill, so the pill text stays short.
+              alignItems: 'flex-end' keeps every pill on the same line. */}
+          <HScroll style={{ marginTop: 4 }} contentContainerStyle={{ alignItems: 'flex-end' }}>
+            {DAYS.map((d, index) => {
+              const isToday = d.iso === today;
+              return (
+                <View key={d.iso} style={{ alignItems: 'center' }}>
+                  {isToday ? <Text style={styles.todayTag}>TODAY</Text> : null}
+                  <TouchableOpacity
+                    style={[
+                      ui.pill,
+                      ui.pillSmall,
+                      isToday && { borderColor: TODAY_COLOUR },
+                      index === selected && ui.pillActive,
+                    ]}
+                    onPress={() => {
+                      pickedRef.current = true;
+                      setSelected(index);
+                    }}
+                  >
+                    <Text style={[ui.pillText, ui.pillTextSmall]}>
+                      {`Day ${d.dayNumber}\u2009-\u2009${monthDay(d.iso)}`}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
           </HScroll>
 
           <Text style={[ui.h3, { marginTop: 2 }]}>
-            {`Day ${day.dayNumber}\u2009-\u2009${monthDay(day.iso)} (${day.weekday})`}
+            {`Day ${day.dayNumber}\u2009-\u2009${monthDay(day.iso)} (${day.weekday})${
+              day.iso === today ? ' · Today' : ''
+            }`}
           </Text>
         </View>
 
@@ -532,7 +572,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings, ta
             }}
           >
             <View style={{ flex: 1, marginRight: 8 }}>
-              <Text style={ui.h3}>Today's plan</Text>
+              <Text style={ui.h3}>{day.iso === today ? "Today's plan" : "Day's plan"}</Text>
               <Text style={ui.sub}>Things to do, in time order</Text>
             </View>
             {untimedPlans.length > 1 ? pillBtn('↕ Reorder', () => setReordering(true)) : null}
@@ -565,7 +605,7 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings, ta
         {stops.length > 0 ? (
           <View style={ui.card}>
             <Text style={ui.h3}>Day route</Text>
-            <Text style={ui.sub}>Open today's stops, in order, in Google Maps.</Text>
+            <Text style={ui.sub}>Open this day's stops, in order, in Google Maps.</Text>
             <View style={[ui.row, { marginTop: 8 }]}>
               <TouchableOpacity
                 style={[ui.pill, ui.pillPrimary]}
@@ -639,4 +679,7 @@ const styles = StyleSheet.create({
   tlLine: { flex: 1, width: 3, backgroundColor: P.line, marginVertical: 2 },
   tlBody: { flex: 1, paddingBottom: 8, paddingLeft: 4 },
   cardTime: { color: P.ink, fontSize: 12, fontWeight: '800', fontFamily: MONO },
+
+  // the small TODAY word above today's day pill (its colour follows TODAY_COLOUR at the top)
+  todayTag: { color: TODAY_COLOUR, fontSize: 9, fontWeight: '800', letterSpacing: 0.8, marginBottom: 0 },
 });

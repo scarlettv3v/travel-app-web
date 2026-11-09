@@ -419,7 +419,7 @@ const s = StyleSheet.create({
 
   input: { backgroundColor: '#fff', borderWidth: 2, borderColor: '#b6cfc3', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, color: C.ink, fontSize: 15 },
 
-  pill: { backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10, marginRight: 5, marginBottom: 5 },
+  pill: { backgroundColor: '#fff', ...border, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10, marginRight: 5, marginBottom: 5, justifyContent: 'center' },
   pillOn: { backgroundColor: C.sun },
   pillText: { color: C.ink, fontWeight: '800', fontSize: 12 },
 

@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Text, View, TouchableOpacity, ScrollView } from 'react-native';
+import { Text, View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import Avatar from './Avatar';
 import AddToDayCard from './AddToDayCard';
 import AddSpotModal from './AddSpotModal';
 import SpotForm from './SpotForm';
 import Popup from './Popup';
-import HScroll from './HScroll';
 import { CATEGORIES, getCategory } from './categories';
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import { pushSpotToPlans } from './linkSync';
 import LinkText from './LinkText';
 import { openPlace } from './places';
-import { ui, screenContent } from './ui';
+import { P, ui, screenContent } from './ui';
 
 // pageSize=300 so every spot is returned (the database only sends a short first page otherwise)
 const DB_URL = `${FIRESTORE_BASE}/spots?pageSize=300`;
@@ -126,10 +125,12 @@ export default function SpotsScreen({ authToken, profile }) {
     p => filter === 'all' || (p.category || 'spot') === filter
   );
 
-  const categoryItems = [['all', `🗂️ All (${placesList.length})`]].concat(
+  // [id, emoji + label, count]. The count is shown lighter, after the label.
+  const categoryItems = [['all', '🗂️ All', placesList.length]].concat(
     CATEGORIES.map(c => [
       c.id,
-      `${c.emoji} ${c.label} (${placesList.filter(p => (p.category || 'spot') === c.id).length})`,
+      `${c.emoji} ${c.label}`,
+      placesList.filter(p => (p.category || 'spot') === c.id).length,
     ])
   );
 
@@ -144,12 +145,14 @@ export default function SpotsScreen({ authToken, profile }) {
             <Text style={ui.sub}>Save a place with its address, then add it to a day.</Text>
           </View>
 
-          <View style={[ui.row, { marginTop: 8 }]}>
+          <View style={[ui.row, { marginTop: 6 }]}>
             <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={() => setAddOpen(true)}>
               <Text style={ui.pillText}>+ Add new spot</Text>
             </TouchableOpacity>
           </View>
-          <Text style={ui.hint}>Type it in, or import it from a link, caption or screenshot.</Text>
+          <Text style={[ui.hint, { marginTop: 0 }]}>
+            Type it in, or import it from a link, caption or screenshot.
+          </Text>
         </View>
 
         {/* Saved spots */}
@@ -159,18 +162,21 @@ export default function SpotsScreen({ authToken, profile }) {
             Showing {visibleSpots.length} of {placesList.length}
           </Text>
 
-          <Text style={ui.label}>Category</Text>
-          <HScroll style={{ flexGrow: 0 }}>
-            {categoryItems.map(([id, label]) => (
+          {/* All categories in view: the row wraps instead of scrolling sideways */}
+          <View style={[ui.row, { marginTop: 6 }]}>
+            {categoryItems.map(([id, label, count]) => (
               <TouchableOpacity
                 key={id}
                 onPress={() => setFilter(id)}
                 style={[ui.pill, ui.pillSmall, filter === id && ui.pillActive]}
               >
-                <Text style={[ui.pillText, ui.pillTextSmall]}>{label}</Text>
+                <Text style={[ui.pillText, ui.pillTextSmall]} numberOfLines={1}>
+                  {label}
+                  <Text style={styles.count}> {count}</Text>
+                </Text>
               </TouchableOpacity>
             ))}
-          </HScroll>
+          </View>
 
           {visibleSpots.length === 0 && (
             <View style={ui.notice}>
@@ -184,19 +190,13 @@ export default function SpotsScreen({ authToken, profile }) {
 
           {visibleSpots.map(place => (
             <View key={place.id} style={ui.listCard}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={ui.tag}>
-                  <Text style={ui.tagText}>
-                    {getCategory(place.category).emoji} {getCategory(place.category).label}
-                  </Text>
-                </View>
-                <View style={{ flex: 1 }} />
-                {place.createdByCharacter ? (
-                  <Avatar characterId={place.createdByCharacter} size={24} />
-                ) : null}
+              <View style={ui.tag}>
+                <Text style={ui.tagText}>
+                  {getCategory(place.category).emoji} {getCategory(place.category).label}
+                </Text>
               </View>
 
-              <Text style={[ui.h3, { marginTop: 3 }]}>{place.name}</Text>
+              <Text style={[ui.h3, { marginTop: 2 }]}>{place.name}</Text>
 
               {place.address ? (
                 <Text style={ui.sub}>📍 {place.address}</Text>
@@ -209,33 +209,52 @@ export default function SpotsScreen({ authToken, profile }) {
               {place.note ? <LinkText style={ui.sub}>{`📝 ${place.note}`}</LinkText> : null}
 
               {place.createdByName ? (
-                <Text style={[ui.sub, { fontSize: 11 }]}>Added by {place.createdByName}</Text>
+                <View style={[ui.byRow, { marginTop: 3 }]}>
+                  {place.createdByCharacter ? (
+                    <Avatar characterId={place.createdByCharacter} size={16} />
+                  ) : null}
+                  <Text style={[ui.sub, { fontSize: 10.5, marginTop: 0, marginLeft: 4 }]}>
+                    Added by {place.createdByName}
+                  </Text>
+                </View>
               ) : null}
 
-              <View style={[ui.row, { marginTop: 6 }]}>
+              {/* All four buttons on one row */}
+              <View style={styles.btnRow}>
                 <TouchableOpacity
-                  style={[ui.pill, ui.pillSmall, ui.pillPrimary]}
+                  style={[ui.pill, ui.pillSmall, ui.pillPrimary, styles.rowPill]}
                   onPress={() => setPlanningSpot(place)}
                 >
-                  <Text style={[ui.pillText, ui.pillTextSmall]}>📅 Add to day</Text>
+                  <Text style={[ui.pillText, ui.pillTextSmall, styles.rowText]} numberOfLines={1}>
+                    📅 Add to day
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[ui.pill, ui.pillSmall]}
+                  style={[ui.pill, ui.pillSmall, styles.rowPill]}
                   onPress={() => openPlace({ name: place.name, address: place.address })}
                 >
-                  <Text style={[ui.pillText, ui.pillTextSmall]}>Google Maps</Text>
+                  <Text style={[ui.pillText, ui.pillTextSmall, styles.rowText]} numberOfLines={1}>
+                    Google Maps
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[ui.pill, ui.pillSmall]}
+                  style={[ui.pill, ui.pillSmall, styles.rowPill]}
                   onPress={() => setEditingSpot(place)}
                 >
-                  <Text style={[ui.pillText, ui.pillTextSmall]}>Edit</Text>
+                  <Text style={[ui.pillText, ui.pillTextSmall, styles.rowText]} numberOfLines={1}>
+                    Edit
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[ui.pill, ui.pillSmall, ui.pillDanger]}
+                  style={[ui.pill, ui.pillSmall, ui.pillDanger, styles.rowPill, { marginRight: 0 }]}
                   onPress={() => handleDeleteSpot(place.id)}
                 >
-                  <Text style={[ui.pillText, ui.pillTextSmall, ui.pillDangerText]}>Delete</Text>
+                  <Text
+                    style={[ui.pillText, ui.pillTextSmall, ui.pillDangerText, styles.rowText]}
+                    numberOfLines={1}
+                  >
+                    Delete
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -292,3 +311,12 @@ export default function SpotsScreen({ authToken, profile }) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  // the count after a category name, lighter than the label
+  count: { color: P.muted, fontWeight: '700' },
+  // one row, no wrapping. Pills shrink a little (and clip with ...) rather than drop to a new line
+  btnRow: { flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center', marginTop: 6 },
+  rowPill: { flexShrink: 1, marginBottom: 0, paddingHorizontal: 6 },
+  rowText: { fontSize: 11 },
+});

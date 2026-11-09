@@ -96,12 +96,12 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
   const [displayRate, setDisplayRate] = useState(1);
   const [displayNote, setDisplayNote] = useState('');
 
-  // filters for the list of expenses
+  // filter for the list of expenses
   const [listFilter, setListFilter] = useState('all'); // all | personal (my own personal expenses)
   const [spendOpen, setSpendOpen] = useState(false); // is the My spending card expanded?
 
   // The default currency is only for showing totals. It is added to the buttons if it is not
-  // already in the list, so it can be picked for "Show totals in" and for expenses.
+  // already in the list, so it can be picked for "Show amounts in" and for expenses.
   const currencyList = [...new Set([base, ...CURRENCIES, ...(defaultCurrency ? [defaultCurrency] : [])])];
 
   // If the default currency arrives or changes after this screen opens, totals follow it
@@ -557,7 +557,7 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
   const personalTotal = allExpenses.filter(isPersonal).reduce((s, e) => s + e.amountBase, 0);
   const sharedTotal = totalSpent - personalTotal;
 
-  // the filtered list
+  // the list
   const list =
     listFilter === 'personal' ? myPersonalExpenses(allExpenses, profile.name) : allExpenses;
   const listTotal = list.reduce((s, e) => s + e.amountBase, 0);
@@ -571,16 +571,15 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
         contentContainerStyle={screenContent}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Header + add button + form */}
-        <View style={ui.card}>
+        {/* Header: thin. The people and the Add button share one row */}
+        <View style={[ui.card, { paddingVertical: 8 }]}>
           <View style={{ paddingRight: 44 }}>
             <Text style={ui.kicker}>SPLIT THE LITTLE THINGS</Text>
             <Text style={ui.h2}>Expenses</Text>
-            <Text style={ui.sub}>See what you spent and settle up together.</Text>
           </View>
 
           {!online || pending.length > 0 ? (
-            <View style={[ui.notice, { marginTop: 12 }]}>
+            <View style={[ui.notice, { marginTop: 6 }]}>
               <Text style={ui.noticeText}>
                 {!online
                   ? "📴 You're offline. New expenses are saved on this phone and sent when you're back online."
@@ -592,36 +591,51 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
             </View>
           ) : null}
 
-          <View style={[ui.row, { marginTop: 12 }]}>
+          <View style={[ui.row, { marginTop: 6 }]}>
             {members.map(member => (
               <View key={member.id} style={styles.person}>
-                <Avatar characterId={member.character} size={22} />
-                <Text style={[ui.pillText, ui.pillTextSmall, { marginLeft: 6 }]}>
-                  {member.name}
-                </Text>
+                <Avatar characterId={member.character} size={18} />
+                <Text style={styles.personText}>{member.name}</Text>
               </View>
             ))}
-          </View>
-
-          {!showForm && (
-            <View style={[ui.row, { marginTop: 8 }]}>
-              <TouchableOpacity style={[ui.pill, ui.pillPrimary]} onPress={openForm}>
+            {!showForm && (
+              <TouchableOpacity
+                style={[ui.pill, ui.pillPrimary, { marginBottom: 4 }]}
+                onPress={openForm}
+              >
                 <Text style={ui.pillText}>+ Add expense</Text>
               </TouchableOpacity>
-            </View>
-          )}
-
+            )}
+          </View>
         </View>
 
-        {/* Currency for all the numbers on this page */}
-        <View style={ui.card}>
-          <Text style={ui.label}>Show amounts in</Text>
-          <Pills
-            items={currencyList.map(code => [code, code])}
-            selected={id => displayCurrency === id}
-            onPress={setDisplayCurrency}
-          />
-          {displayNote ? <Text style={ui.hint}>{displayNote}</Text> : null}
+        {/* Currency for all the numbers on this page: thin, label and rate on one line */}
+        <View style={[ui.card, { paddingVertical: 6 }]}>
+          <View style={styles.curHead}>
+            <Text style={styles.curLabel}>Show amounts in</Text>
+            {displayNote ? (
+              <Text style={styles.curNote} numberOfLines={1}>
+                {displayNote}
+              </Text>
+            ) : null}
+          </View>
+          <View style={styles.curRow}>
+            {currencyList.map((code, i) => (
+              <TouchableOpacity
+                key={code}
+                style={[
+                  styles.curPill,
+                  displayCurrency === code && styles.curPillOn,
+                  i === currencyList.length - 1 && { marginRight: 0 },
+                ]}
+                onPress={() => setDisplayCurrency(code)}
+              >
+                <Text style={styles.curPillText} numberOfLines={1}>
+                  {code}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
         {/* My spending: just me. Tap the header to show or hide the details */}
@@ -642,22 +656,26 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
             </View>
           ) : (
             <View>
+              {/* Three boxes. Each label is one line, with a small description under the amount */}
               <View style={styles.miniWrap}>
                 <View style={styles.mini}>
-                  <Text style={styles.miniLabel}>TOTAL SPENDING</Text>
-                  <Text style={styles.miniValue}>{show(mine.share)}</Text>
+                  <Text style={styles.miniLabel} numberOfLines={1}>TOTAL</Text>
+                  <Text style={styles.miniValue} numberOfLines={1}>{show(mine.share)}</Text>
+                  <Text style={styles.miniSub} numberOfLines={1}>my spending</Text>
                 </View>
                 <View style={styles.mini}>
-                  <Text style={styles.miniLabel}>PERSONAL</Text>
-                  <Text style={styles.miniValue}>{show(mine.personal)}</Text>
+                  <Text style={styles.miniLabel} numberOfLines={1}>PERSONAL</Text>
+                  <Text style={styles.miniValue} numberOfLines={1}>{show(mine.personal)}</Text>
+                  <Text style={styles.miniSub} numberOfLines={1}>only me</Text>
                 </View>
                 <View style={styles.mini}>
-                  <Text style={styles.miniLabel}>👥 SHARED (MY PART)</Text>
-                  <Text style={styles.miniValue}>{show(mine.shared)}</Text>
+                  <Text style={styles.miniLabel} numberOfLines={1}>👥 SHARED</Text>
+                  <Text style={styles.miniValue} numberOfLines={1}>{show(mine.shared)}</Text>
+                  <Text style={styles.miniSub} numberOfLines={1}>my part</Text>
                 </View>
               </View>
               <Text style={ui.hint}>
-                Amounts in {shownCurrency}. Total spending = personal + my part of shared.
+                Amounts in {shownCurrency}. Total = personal + my part of shared.
                 {spendOpen ? '' : ' Tap the arrow for details.'}
               </Text>
 
@@ -742,7 +760,7 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
               </View>
             ) : (
               transfers.map((transfer, index) => (
-                <Text key={index} style={[ui.sub, { color: P.ink, marginTop: 8 }]}>
+                <Text key={index} style={[ui.sub, { color: P.ink, marginTop: 6 }]}>
                   {transfer.from} → {transfer.to}:{' '}
                   <Text style={{ fontWeight: '800' }}>{cur(transfer.amount)}</Text>
                 </Text>
@@ -762,8 +780,8 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
                   const even = Math.abs(r.balance) < 0.005;
                   return (
                     <View key={r.name} style={styles.paidRow}>
-                      <Avatar characterId={characterOf(r.name) || 'fox'} size={26} />
-                      <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Avatar characterId={characterOf(r.name) || 'fox'} size={24} />
+                      <View style={{ flex: 1, marginLeft: 8 }}>
                         <Text style={ui.strong}>
                           {r.name}
                           {r.name === profile.name ? ' (You)' : ''}
@@ -809,7 +827,7 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
           </View>
         </View>
 
-        {/* All expenses, with filters */}
+        {/* All expenses, with filter */}
         <View style={ui.card}>
           <Text style={ui.h3}>
             Expenses ({list.length}
@@ -864,7 +882,7 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
                   ) : null}
                 </View>
 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 3 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
                   <Text style={[ui.strong, { flex: 1, marginRight: 8 }]}>{expense.what}</Text>
                   <Text style={[ui.strong, { fontFamily: MONO }]}>
                     {expense.currency} {money(expense.amount)}
@@ -888,14 +906,14 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
 
                 {expense.addedByCharacter ? (
                   <View style={ui.byRow}>
-                    <Avatar characterId={expense.addedByCharacter} size={20} />
-                    <Text style={[ui.sub, { marginTop: 0, marginLeft: 8 }]}>
+                    <Avatar characterId={expense.addedByCharacter} size={16} />
+                    <Text style={[ui.sub, { marginTop: 0, marginLeft: 6, fontSize: 11 }]}>
                       Added by {expense.addedByName}
                     </Text>
                   </View>
                 ) : null}
 
-                <View style={[ui.row, { marginTop: 8 }]}>
+                <View style={[ui.row, { marginTop: 6 }]}>
                   <TouchableOpacity
                     style={[ui.pill, ui.pillSmall]}
                     onPress={() => startEdit(expense)}
@@ -1036,6 +1054,7 @@ export default function ExpensesScreen({ authToken, profile, defaultCurrency }) 
 }
 
 const styles = StyleSheet.create({
+  // the member chips in the header
   person: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1043,34 +1062,56 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#9dbcae',
     borderRadius: 999,
-    paddingVertical: 4,
-    paddingHorizontal: 9,
-    marginRight: 6,
-    marginBottom: 6,
+    paddingVertical: 2,
+    paddingHorizontal: 7,
+    marginRight: 4,
+    marginBottom: 4,
   },
+  personText: { color: P.ink, fontWeight: '800', fontSize: 11, marginLeft: 5 },
+
+  // "Show amounts in" card: label + rate on one line, then one row of currencies
+  curHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  curLabel: { color: P.ink, fontSize: 11.5, fontWeight: '800' },
+  curNote: { color: P.kicker, fontSize: 10.5, flexShrink: 1, marginLeft: 8, textAlign: 'right' },
+  curRow: { flexDirection: 'row', flexWrap: 'nowrap' },
+  curPill: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: P.ink,
+    borderRadius: 999,
+    paddingVertical: 1.5,
+    marginRight: 3,
+    alignItems: 'center',
+  },
+  curPillOn: { backgroundColor: P.gold },
+  curPillText: { color: P.ink, fontWeight: '800', fontSize: 11 },
+
   metric: {
     backgroundColor: P.panel,
     borderWidth: 2,
     borderColor: P.ink,
     borderRadius: 14,
-    padding: 10,
-    marginTop: 8,
+    padding: 8,
+    marginTop: 6,
   },
-  metricText: { color: P.ink, fontSize: 26, fontWeight: '800', fontFamily: MONO },
+  metricText: { color: P.ink, fontSize: 24, fontWeight: '800', fontFamily: MONO },
 
-  // "My spending" boxes, two per row
-  miniWrap: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  // "My spending" boxes, three in a row
+  miniWrap: { flexDirection: 'row', justifyContent: 'space-between' },
   mini: {
     width: '32%',
     backgroundColor: P.panel,
     borderWidth: 2,
     borderColor: P.ink,
     borderRadius: 12,
-    padding: 8,
-    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginTop: 6,
   },
-  miniLabel: { color: P.muted, fontSize: 9, fontWeight: '800', letterSpacing: 0.4 },
-  miniValue: { color: P.ink, fontSize: 14, fontWeight: '800', fontFamily: MONO, marginTop: 2 },
+  miniLabel: { color: P.muted, fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
+  miniValue: { color: P.ink, fontSize: 14, fontWeight: '800', fontFamily: MONO, marginTop: 1 },
+  miniSub: { color: P.muted, fontSize: 10, marginTop: 0 },
 
   // the little sums in My spending
   calcRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
@@ -1081,7 +1122,7 @@ const styles = StyleSheet.create({
   paidRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: P.fieldBorder,
   },
