@@ -3,7 +3,6 @@ import { Text, View, StyleSheet, TouchableOpacity, ScrollView, Platform } from '
 import { firestoreFetch, FIRESTORE_BASE } from './firestore';
 import Avatar from './Avatar';
 import { useTrip } from './trip';
-import TripDates from './TripDates';
 import { getCategory } from './categories';
 import ReorderModal from './ReorderModal';
 import EditPlanModal from './EditPlanModal';
@@ -491,11 +490,9 @@ export default function ItineraryScreen({ authToken, profile, onOpenBookings, ta
             <Text style={ui.sub}>A little plan for every part of the adventure.</Text>
           </View>
 
-          <TripDates />
-
           {/* The word TODAY sits above today's pill, so the pill text stays short.
               alignItems: 'flex-end' keeps every pill on the same line. */}
-          <HScroll style={{ marginTop: 4 }} contentContainerStyle={{ alignItems: 'flex-end' }}>
+          <HScroll style={{ marginTop: 8 }} contentContainerStyle={{ alignItems: 'flex-end' }}>
             {DAYS.map((d, index) => {
               const isToday = d.iso === today;
               return (
