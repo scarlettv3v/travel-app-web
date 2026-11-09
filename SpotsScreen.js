@@ -150,9 +150,7 @@ export default function SpotsScreen({ authToken, profile }) {
               <Text style={ui.pillText}>+ Add new spot</Text>
             </TouchableOpacity>
           </View>
-          <Text style={[ui.hint, { marginTop: 0 }]}>
-            Type it in, or import it from a link, caption or screenshot.
-          </Text>
+         
         </View>
 
         {/* Saved spots */}
@@ -163,20 +161,26 @@ export default function SpotsScreen({ authToken, profile }) {
           </Text>
 
           {/* All categories in view: the row wraps instead of scrolling sideways */}
-          <View style={[ui.row, { marginTop: 6 }]}>
-            {categoryItems.map(([id, label, count]) => (
-              <TouchableOpacity
-                key={id}
-                onPress={() => setFilter(id)}
-                style={[ui.pill, ui.pillSmall, filter === id && ui.pillActive]}
-              >
-                <Text style={[ui.pillText, ui.pillTextSmall]} numberOfLines={1}>
-                  {label}
-                  <Text style={styles.count}> {count}</Text>
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {/* One row: tight padding inside each pill, and no wrapping */}
+<View style={{ flexDirection: 'row', flexWrap: 'nowrap', marginTop: 6 }}>
+  {categoryItems.map(([id, label, count]) => (
+    <TouchableOpacity
+      key={id}
+      onPress={() => setFilter(id)}
+      style={[
+        ui.pill,
+        ui.pillSmall,
+        { paddingHorizontal: 4, marginRight: 3, flexShrink: 1 },
+        filter === id && ui.pillActive,
+      ]}
+    >
+      <Text style={[ui.pillText, ui.pillTextSmall]} numberOfLines={1}>
+        {label}
+        <Text style={styles.count}> {count}</Text>
+      </Text>
+    </TouchableOpacity>
+  ))}
+</View>
 
           {visibleSpots.length === 0 && (
             <View style={ui.notice}>
